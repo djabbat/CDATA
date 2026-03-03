@@ -1,7 +1,7 @@
 ## Cell DT — TODO / Статус
 
 > Подробный приоритизированный список: см. **RECOMMENDATION.md**
-> Последнее обновление: 2026-03-03
+> Последнее обновление: 2026-03-04
 
 ---
 
@@ -28,7 +28,14 @@
 - Синхронизация standalone `CentriolarDamageState` каждый step()
 - Калибровка: смерть ≈ 78 лет (normal), прогерия (×5), долгожители (×0.6)
 
-### Миелоидный сдвиг (`myeloid_shift_module`) ✅ NEW
+### PTM-накопление (`centriole_module`) ✅ NEW
+- Накопление PTM в `CentriolePair.mother/daughter.ptm_signature`
+- Мать накапливает быстрее (daughter_ptm_factor=0.4)
+- M-phase boost ×3.0 (тубулин максимально доступен)
+- Не трогает `CentriolarDamageState` (двойной счёт исключён)
+- 6 unit-тестов
+
+### Миелоидный сдвиг (`myeloid_shift_module`) ✅
 - Вычисление `myeloid_bias` из 4 компонент CDATA
 - Обратная связь: `InflammagingState { ros_boost, niche_impairment, sasp_intensity }`
 - `MyeloidPhenotype` (Healthy / MildShift / ModerateShift / SevereShift)
@@ -43,9 +50,13 @@
 - Синхронизация потентности из `spindle_fidelity`
 - Фабрики: embryonic / hematopoietic / neural stem cell
 
-### Клеточный цикл (`cell_cycle_module`) 🟡
+### Клеточный цикл (`cell_cycle_module`) ✅
 - Прогрессия фаз G1/S/G2/M с временными длительностями
 - Учёт стресса и факторов роста
+- **G1/S checkpoint**: арест при `total_damage_score() > checkpoint_strictness`
+- **G2/M checkpoint (SAC)**: арест при `spindle_fidelity < (1 - checkpoint_strictness)`
+- Growth factors синхронизированы с `CentriolarDamageState`
+- 6 unit-тестов
 
 ### Транскриптом (`transcriptome_module`) 🟡
 - Экспрессия генов, транскрипционные факторы, сигнальные пути
@@ -62,11 +73,10 @@
 
 ## 🔧 Следующие шаги (по приоритету)
 
-1. **`centriole_module.step()`** — реализовать PTM-накопление напрямую в standalone `CentriolarDamageState`
-2. **`CellCycleModule` checkpoints** — G1/S: арест при `damage > threshold`; G2/M: арест при `spindle < 0.5`
-3. **Inflammaging → DamageParams** — читать `InflammagingState` уже реализовано; проверить петлю на интеграционном тесте
-4. **AsymmetricDivisionModule — спавн дочерних сущностей** — при Asymmetric → `world.spawn()` новой сущности с унаследованным `CentriolarInducerPair`
-5. **Транскриптом → Клеточный цикл** — Cyclin D уровни из `GeneExpressionState` → длительность G1
+1. **AsymmetricDivisionModule — спавн дочерних сущностей** — при Asymmetric → `world.spawn()` новой сущности с унаследованным `CentriolarInducerPair`
+2. **Транскриптом → Клеточный цикл** — Cyclin D уровни из `GeneExpressionState` → длительность G1 (`p21 > 0.7` → G1-арест, `p16 > 0.8` → постоянный арест)
+3. **AsymmetricDivision → TissueState** — высокий `exhaustion_count` → снижать `stem_cell_pool` в `human_development_module.update_tissue_state()`
+4. **StemCellHierarchyModule — пластичность** — при `enable_plasticity=true` и `Oligopotent` + `spindle_fidelity > 0.6` → вероятность перехода в `Pluripotent`
 
 ## ⬜ Долгосрочные планы
 
@@ -100,7 +110,7 @@ cargo run --bin transcriptome_example
 # I/O
 cargo run --bin io_example
 
-# Все тесты (25 тестов)
+# Все тесты (37 тестов)
 cargo test
 
 # Документация

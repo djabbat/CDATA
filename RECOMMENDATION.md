@@ -156,13 +156,14 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ## 3. ЗАГЛУШКИ (существующие модули без реализации)
 
-- [ ] **`centriole_module.step()`** — реализовать накопление PTM:
-  - Читает `CentriolarDamageState` (standalone ECS) и `CellCycleStateExtended`
-  - В фазе S/M: `protein_carbonylation += base_carbonylation_rate × dt`
-  - В фазе M: `phosphorylation_dysregulation` растёт при каждом делении
-  - Синхронизировать с `HumanDevelopmentComponent` через общий standalone компонент
-  - *Примечание:* Пока `HumanDevelopmentModule` уже накапливает повреждения — избежать двойного счёта.
-    Решение: `centriole_module` накапливает только PTM-специфичные повреждения, `human_development_module` — системные/возрастные.
+- [x] **`centriole_module.step()`** — PTM-накопление реализовано ✅:
+  - Читает `CellCycleStateExtended` (Option) для детектирования M-фазы
+  - Накапливает PTM в `CentriolePair.mother.ptm_signature` и `.daughter.ptm_signature`
+  - Мать накапливает в `daughter_ptm_factor=0.4` раза быстрее дочерней
+  - M-phase boost ×3.0 (максимальный стресс тубулина при митозе)
+  - Не трогает `CentriolarDamageState` — двойного счёта нет
+  - 6 unit-тестов пройдены: ptm_starts_at_zero, increases_after_steps,
+    mother_accumulates_faster, m_phase_boosts, ptm_clamped_at_one, daughter_factor_zero
 
 - [ ] **`AsymmetricDivisionModule` — спавн дочерних сущностей** (опционально):
   - При `DivisionType::Asymmetric` → `world.spawn(...)` новой сущности с:
@@ -176,18 +177,22 @@ sasp_intensity   = inflammaging_index           → InflammagingState
     вероятность `plasticity_rate` перехода в `Pluripotent` если `spindle_fidelity > 0.6`
   - Имитирует де-дифференцировку при нишевых сигналах
 
-- [ ] **`CellCycleModule` — enforced checkpoints**:
-  - G1/S checkpoint: если `total_damage_score() > checkpoint_strictness` → не переходить в S, потенциально апоптоз
-  - G2/M checkpoint (spindle assembly): если `spindle_fidelity < 0.5` → не переходить в M
-  - Читать поле из `CentriolarDamageState` (standalone) — нет прямой зависимости от `human_development_module`
+- [x] **`CellCycleModule` — enforced checkpoints** — реализовано ✅:
+  - G1/S checkpoint: `total_damage_score() > checkpoint_strictness` → `G1SRestriction` (арест)
+  - G2/M checkpoint (SAC): `spindle_fidelity < (1 - checkpoint_strictness)` → `SpindleAssembly`
+  - Читает `Option<&CentriolarDamageState>` — нет прямой зависимости от `human_development_module`
+  - `checkpoint_strictness=0.0` (дефолт) → аресты отключены, полная обратная совместимость
+  - Growth factors синхронизируются из damage: `dna_damage = total_damage_score()`, `oxidative_stress = ros_level`
+  - 6 unit-тестов пройдены: pristine_advances, damaged_arrests_g1s, broken_spindle_arrests_g2m,
+    zero_strictness_never_arrests, arrest_releases_when_damage_clears, cells_divided_counter
 
 ---
 
 ## 4. ОБРАТНЫЕ СВЯЗИ МЕЖДУ МОДУЛЯМИ
 
-- [ ] **Мелоидный сдвиг → DamageParams (через `InflammagingState`)**:
-  - Реализовать чтение в `human_development_module.step()` — см. п. 1
-  - Это создаёт петлю: повреждение → миелоидный сдвиг → inflammaging → больше ROS → больше повреждений
+- [x] **Мелоидный сдвиг → DamageParams (через `InflammagingState`)** ✅:
+  - `human_development_module.step()` читает `Option<&InflammagingState>` и применяет `ros_boost` + `niche_impairment`
+  - Петля замкнута: повреждение → myeloid_shift → inflammaging → больше ROS → больше повреждений
 
 - [ ] **Транскриптом → клеточный цикл**:
   - `transcriptome_module` обновляет уровни генов `CDKN1A (p21)`, `CDKN2A (p16)`, `MYC`
