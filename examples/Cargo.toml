@@ -12,6 +12,7 @@ transcriptome_module = { path = "../crates/cell_dt_modules/transcriptome_module"
 asymmetric_division_module = { path = "../crates/cell_dt_modules/asymmetric_division_module" }
 stem_cell_hierarchy_module = { path = "../crates/cell_dt_modules/stem_cell_hierarchy_module" }
 human_development_module = { path = "../crates/cell_dt_modules/human_development_module" }
+myeloid_shift_module = { path = "../crates/cell_dt_modules/myeloid_shift_module" }
 cell_dt_viz = { path = "../crates/cell_dt_viz" }
 cell_dt_io = { path = "../crates/cell_dt_io" }
 cell_dt_config = { path = "../crates/cell_dt_config" }
@@ -62,3 +63,7 @@ path = "src/bin/stem_cell_example.rs"
 [[bin]]
 name = "human_development_example"
 path = "src/bin/human_development_example.rs"
+
+[[bin]]
+name = "myeloid_shift_example"
+path = "src/bin/myeloid_shift_example.rs"

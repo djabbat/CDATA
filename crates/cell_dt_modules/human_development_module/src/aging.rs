@@ -25,6 +25,8 @@ pub enum AgingPhenotype {
     StemCellExhaustion,
     /// Изменение межклеточной коммуникации
     AlteredCommunication,
+    /// Иммунное старение: миелоидный сдвиг + лимфоидная недостаточность
+    ImmuneDecline,
 }
 
 /// Связь с центриолярными изменениями

@@ -22,6 +22,7 @@ use cell_dt_core::{
         CentriolarDamageState, CentriolarInducerPair, PotencyLevel,
         TissueState, TissueType,
         CellCycleStateExtended,
+        InflammagingState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -41,7 +42,7 @@ pub use inducers::{
     centrosomal_oxygen_level, detach_by_oxygen,
 };
 pub use tissues::*;
-pub use aging::*;
+pub use aging::{AgingPhenotype, CentrioleAgingLink};
 pub use damage::{DamageParams, accumulate_damage};
 pub use development::{division_rate_per_year, base_ros_level, stage_for_age};
 
@@ -311,11 +312,18 @@ impl SimulationModule for HumanDevelopmentModule {
         let mut rng = rand::thread_rng();
 
         // Шаг 1: обновить HumanDevelopmentComponent (основная логика CDATA)
+        // Также читаем InflammagingState (опционально) — пишется myeloid_shift_module.
         {
-        let mut query = world.query::<&mut HumanDevelopmentComponent>();
+        let mut query = world
+            .query::<(&mut HumanDevelopmentComponent, Option<&InflammagingState>)>();
 
-        for (_, comp) in query.iter() {
+        for (_, (comp, inflammaging_opt)) in query.iter() {
             if !comp.is_alive { continue; }
+
+            // Предварительно извлекаем значения из InflammagingState (если модуль активен)
+            let infl_ros_boost        = inflammaging_opt.map_or(0.0, |i| i.ros_boost);
+            let infl_niche_impairment = inflammaging_opt.map_or(0.0, |i| i.niche_impairment);
+            let infl_sasp             = inflammaging_opt.map_or(0.0, |i| i.sasp_intensity);
 
             // 1. Возраст
             comp.age_days += dt_days;
@@ -337,14 +345,39 @@ impl SimulationModule for HumanDevelopmentModule {
                     dt_years,
                 );
 
+                // 3б. Inflammaging-буст ROS (петля от миелоидного сдвига).
+                // Применяем после accumulate_damage, т.к. та перезаписывает ros_level.
+                // Лаг в один шаг допустим: myeloid_shift_module запускается следом.
+                if infl_ros_boost > 0.0 {
+                    comp.centriolar_damage.ros_level =
+                        (comp.centriolar_damage.ros_level * (1.0 + infl_ros_boost)).min(1.0);
+                    // Пересчитать производные метрики (spindle_fidelity, ciliary_function)
+                    comp.centriolar_damage.update_functional_metrics();
+                }
+
                 // 4. O₂-зависимое отщепление индукторов
                 Self::apply_oxygen_detachment(comp, &mut rng);
 
                 // 5. Тканевое состояние (Трек A + Трек B)
                 Self::update_tissue_state(comp);
 
+                // 5б. Niche impairment от воспаления (снижает темп регенерации)
+                if infl_niche_impairment > 0.0 {
+                    comp.tissue_state.regeneration_tempo =
+                        (comp.tissue_state.regeneration_tempo
+                            * (1.0 - infl_niche_impairment)).max(0.0);
+                    comp.tissue_state.update_functional_capacity();
+                }
+
                 // 6. Фенотипы старения
                 Self::update_aging_phenotypes(comp);
+
+                // 6б. ImmuneDecline — активируется при выраженном SASP
+                if infl_sasp > 0.4
+                    && !comp.active_phenotypes.contains(&AgingPhenotype::ImmuneDecline)
+                {
+                    comp.active_phenotypes.push(AgingPhenotype::ImmuneDecline);
+                }
 
                 // 7. Смерть:
                 //    — молекулярный сенесценс (total_damage > 0.75 ≈ 78 лет)
@@ -468,10 +501,11 @@ impl SimulationModule for HumanDevelopmentModule {
             comp.inducers.detachment_params.mother_bias = self.params.mother_bias;
             comp.inducers.detachment_params.age_bias_coefficient =
                 self.params.age_bias_coefficient;
-            // Также добавляем CentriolarDamageState как отдельный ECS-компонент,
-            // чтобы другие модули (stem_cell_hierarchy, asymmetric_division)
-            // могли запрашивать его напрямую без зависимости от этого крейта.
+            // Standalone ECS-компоненты для межмодульного взаимодействия:
+            // CentriolarDamageState — синхронизируется в step() для других модулей.
+            // InflammagingState     — пишется myeloid_shift_module, читается здесь.
             world.insert_one(entity, CentriolarDamageState::pristine())?;
+            world.insert_one(entity, InflammagingState::default())?;
             world.insert_one(entity, comp)?;
         }
 

@@ -702,6 +702,27 @@ mod tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Inflammaging — канал обратной связи myeloid_shift_module → human_development_module
+// ---------------------------------------------------------------------------
+
+/// Состояние воспалительного старения (inflammaging).
+///
+/// Пишется из `myeloid_shift_module` каждый шаг.
+/// Читается из `human_development_module` для коррекции скорости повреждений.
+/// При отсутствии `myeloid_shift_module` компонент остаётся нулевым — поведение как раньше.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InflammagingState {
+    /// Дополнительный множитель скорости ROS-повреждения [0..0.5].
+    /// Применяется как: `effective_ros_rate = base_ros_rate × (1 + ros_boost)`
+    pub ros_boost: f32,
+    /// Снижение темпа регенерации ниши [0..0.5].
+    /// Применяется как: `regeneration_tempo *= (1 - niche_impairment)`
+    pub niche_impairment: f32,
+    /// Интенсивность SASP (Senescence-Associated Secretory Phenotype) [0..1].
+    pub sasp_intensity: f32,
+}
+
 impl CellCycleStateExtended {
     /// Получить активность конкретного комплекса
     pub fn get_complex_activity(&self, cyclin_type: CyclinType, cdk_type: CdkType) -> f32 {
