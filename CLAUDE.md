@@ -189,7 +189,7 @@ cargo run --bin io_example
 # Производительность
 cargo run --bin performance_test
 
-# Все тесты (41 тест)
+# Все тесты (45 тестов)
 cargo test
 
 # Документация

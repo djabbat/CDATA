@@ -42,6 +42,15 @@
 - `asymmetric_division_module` пишет `exhaustion_count` и `asymmetric_count`
 - `human_development_module` читает `exhaustion_ratio` → уменьшает `stem_cell_pool`
 
+### PTM → CentriolarDamageState bridge ✅ NEW
+- `human_development_module.step()` читает `Option<&CentriolePair>`
+- Конвертирует PTM в функциональные повреждения (масштаб 0.002/год при PTM=1.0):
+  - `acetylation_level` → `tubulin_hyperacetylation`
+  - `oxidation_level` → `protein_carbonylation`
+  - `phosphorylation_level` → `phosphorylation_dysregulation`
+  - `methylation_level × 0.5` → `protein_aggregates`
+- 4 unit-теста: bridge_increases_hyperacetylation, bridge_increases_carbonylation, bridge_zero_with_no_ptm, bridge_scale_is_moderate
+
 ### PTM-накопление (`centriole_module`) ✅
 - Накопление PTM в `CentriolePair.mother/daughter.ptm_signature`
 - Мать накапливает быстрее (daughter_ptm_factor=0.4)
@@ -89,7 +98,7 @@
 
 1. **AsymmetricDivisionModule — спавн дочерних сущностей** — при Asymmetric → `world.spawn()` новой сущности с `CentriolarDamageState::pristine()` + ограничение `max_entities`
 2. **StemCellHierarchyModule — пластичность** — при `enable_plasticity=true` и `Oligopotent` + `spindle_fidelity > 0.6` → вероятность перехода в `Pluripotent`
-3. **PTM → CentriolarDamageState bridge** — накопленные PTM в `CentriolePair` влияют на `protein_carbonylation` / `phosphorylation_dysregulation` в `CentriolarDamageState`
+3. **Теломерный Трек C** — `TelomereState` (укорачивание при делении, ускоряется при `spindle_fidelity↓`)
 
 ## ⬜ Долгосрочные планы
 
@@ -123,7 +132,7 @@ cargo run --bin transcriptome_example
 # I/O
 cargo run --bin io_example
 
-# Все тесты (41 тест)
+# Все тесты (45 тестов)
 cargo test
 
 # Документация

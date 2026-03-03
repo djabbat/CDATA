@@ -156,6 +156,11 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ## 3. ЗАГЛУШКИ (существующие модули без реализации)
 
+- [x] **PTM → CentriolarDamageState bridge** — реализован в `human_development_module` ✅:
+  - Читает `Option<&CentriolePair>` в step(), применяет PTM_SCALE=0.002/год
+  - acetylation→tubulin_hyperacetylation, oxidation→carbonylation, phospho→phospho_dysreg, methyl→aggregates
+  - 4 unit-теста (scale_is_moderate проверяет что bridge < 50% от базового damage за 30 лет)
+
 - [x] **`centriole_module.step()`** — PTM-накопление реализовано ✅:
   - Читает `CellCycleStateExtended` (Option) для детектирования M-фазы
   - Накапливает PTM в `CentriolePair.mother.ptm_signature` и `.daughter.ptm_signature`

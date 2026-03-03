@@ -24,6 +24,7 @@ use cell_dt_core::{
         CellCycleStateExtended,
         InflammagingState,
         DivisionExhaustionState,
+        CentriolePair,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -319,9 +320,10 @@ impl SimulationModule for HumanDevelopmentModule {
             &mut HumanDevelopmentComponent,
             Option<&InflammagingState>,
             Option<&DivisionExhaustionState>,
+            Option<&CentriolePair>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt)) in query.iter() {
+        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt)) in query.iter() {
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -330,6 +332,15 @@ impl SimulationModule for HumanDevelopmentModule {
             let infl_sasp             = inflammaging_opt.map_or(0.0, |i| i.sasp_intensity);
             // Истощение делений (asymmetric_division_module → stem_cell_pool)
             let exhaustion_ratio      = exhaustion_opt.map_or(0.0, |e| e.exhaustion_ratio());
+            // PTM-уровни из CentriolePair (centriole_module → CentriolarDamageState bridge)
+            // Используем среднее мать+дочь для ацетилирования, мать — для остальных (мать старше)
+            let ptm_acetylation = centriole_opt.map_or(0.0, |c| {
+                (c.mother.ptm_signature.acetylation_level
+                    + c.daughter.ptm_signature.acetylation_level) / 2.0
+            });
+            let ptm_oxidation   = centriole_opt.map_or(0.0, |c| c.mother.ptm_signature.oxidation_level);
+            let ptm_phospho     = centriole_opt.map_or(0.0, |c| c.mother.ptm_signature.phosphorylation_level);
+            let ptm_methyl      = centriole_opt.map_or(0.0, |c| c.mother.ptm_signature.methylation_level);
 
             // 1. Возраст
             comp.age_days += dt_days;
@@ -351,7 +362,27 @@ impl SimulationModule for HumanDevelopmentModule {
                     dt_years,
                 );
 
-                // 3б. Inflammaging-буст ROS (петля от миелоидного сдвига).
+                // 3б. PTM bridge: структурные PTM CentriolePair → функциональные повреждения.
+                // Масштаб 0.002/год при PTM=1.0 → ~33% от базовой скорости накопления.
+                // Лаг один шаг (centriole_module запускается до human_development_module).
+                {
+                    const PTM_SCALE: f32 = 0.002;
+                    let dam = &mut comp.centriolar_damage;
+                    dam.tubulin_hyperacetylation = (dam.tubulin_hyperacetylation
+                        + ptm_acetylation * PTM_SCALE * dt_years).min(1.0);
+                    dam.protein_carbonylation    = (dam.protein_carbonylation
+                        + ptm_oxidation   * PTM_SCALE * dt_years).min(1.0);
+                    dam.phosphorylation_dysregulation = (dam.phosphorylation_dysregulation
+                        + ptm_phospho     * PTM_SCALE * dt_years).min(1.0);
+                    // Метилирование → небольшой вклад в агрегацию белков (×0.5)
+                    dam.protein_aggregates = (dam.protein_aggregates
+                        + ptm_methyl      * PTM_SCALE * 0.5 * dt_years).min(1.0);
+                    if ptm_acetylation + ptm_oxidation + ptm_phospho > 0.0 {
+                        dam.update_functional_metrics();
+                    }
+                }
+
+                // 3в. Inflammaging-буст ROS (петля от миелоидного сдвига).
                 // Применяем после accumulate_damage, т.к. та перезаписывает ros_level.
                 // Лаг в один шаг допустим: myeloid_shift_module запускается следом.
                 if infl_ros_boost > 0.0 {
@@ -548,5 +579,125 @@ pub fn map_tissue_type(human_type: HumanTissueType) -> TissueType {
         HumanTissueType::Muscle
         | HumanTissueType::Heart => TissueType::Muscle,
         _ => TissueType::Skin,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Тесты PTM bridge
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod ptm_bridge_tests {
+    use super::damage::{accumulate_damage, DamageParams};
+    use cell_dt_core::components::CentriolarDamageState;
+
+    const PTM_SCALE: f32 = 0.002;
+    const DT_YEARS: f32  = 1.0 / 365.25; // один шаг = один день
+
+    /// Применяет PTM bridge так же как делает human_development_module.step()
+    fn apply_ptm_bridge(
+        damage: &mut CentriolarDamageState,
+        ptm_acetylation: f32,
+        ptm_oxidation:   f32,
+        ptm_phospho:     f32,
+        ptm_methyl:      f32,
+        dt_years: f32,
+    ) {
+        damage.tubulin_hyperacetylation = (damage.tubulin_hyperacetylation
+            + ptm_acetylation * PTM_SCALE * dt_years).min(1.0);
+        damage.protein_carbonylation    = (damage.protein_carbonylation
+            + ptm_oxidation   * PTM_SCALE * dt_years).min(1.0);
+        damage.phosphorylation_dysregulation = (damage.phosphorylation_dysregulation
+            + ptm_phospho     * PTM_SCALE * dt_years).min(1.0);
+        damage.protein_aggregates = (damage.protein_aggregates
+            + ptm_methyl      * PTM_SCALE * 0.5 * dt_years).min(1.0);
+        damage.update_functional_metrics();
+    }
+
+    #[test]
+    fn test_ptm_bridge_increases_hyperacetylation() {
+        let params = DamageParams::default();
+        let age_yr = 30.0_f32;
+
+        // Контрольная клетка: только accumulate_damage
+        let mut damage_ctrl = CentriolarDamageState::pristine();
+        for _ in 0..365 {
+            accumulate_damage(&mut damage_ctrl, &params, age_yr, DT_YEARS);
+        }
+
+        // Клетка с PTM bridge: высокое ацетилирование
+        let mut damage_ptm = CentriolarDamageState::pristine();
+        for _ in 0..365 {
+            accumulate_damage(&mut damage_ptm, &params, age_yr, DT_YEARS);
+            apply_ptm_bridge(&mut damage_ptm, 1.0, 0.0, 0.0, 0.0, DT_YEARS);
+        }
+
+        assert!(damage_ptm.tubulin_hyperacetylation > damage_ctrl.tubulin_hyperacetylation,
+            "PTM bridge должен увеличивать tubulin_hyperacetylation: ptm={:.4} ctrl={:.4}",
+            damage_ptm.tubulin_hyperacetylation, damage_ctrl.tubulin_hyperacetylation);
+    }
+
+    #[test]
+    fn test_ptm_bridge_increases_carbonylation() {
+        let params = DamageParams::default();
+        let age_yr = 30.0_f32;
+
+        let mut damage_ctrl = CentriolarDamageState::pristine();
+        let mut damage_ptm  = CentriolarDamageState::pristine();
+
+        for _ in 0..365 {
+            accumulate_damage(&mut damage_ctrl, &params, age_yr, DT_YEARS);
+            accumulate_damage(&mut damage_ptm,  &params, age_yr, DT_YEARS);
+            apply_ptm_bridge(&mut damage_ptm, 0.0, 1.0, 0.0, 0.0, DT_YEARS); // только oxidation
+        }
+
+        assert!(damage_ptm.protein_carbonylation > damage_ctrl.protein_carbonylation,
+            "PTM bridge (oxidation) должен увеличивать protein_carbonylation");
+    }
+
+    #[test]
+    fn test_ptm_bridge_zero_with_no_ptm() {
+        // При ptm=0 bridge не изменяет damage
+        let params = DamageParams::default();
+        let age_yr = 30.0_f32;
+
+        let mut damage_ctrl = CentriolarDamageState::pristine();
+        let mut damage_zero = CentriolarDamageState::pristine();
+
+        for _ in 0..365 {
+            accumulate_damage(&mut damage_ctrl, &params, age_yr, DT_YEARS);
+            accumulate_damage(&mut damage_zero, &params, age_yr, DT_YEARS);
+            apply_ptm_bridge(&mut damage_zero, 0.0, 0.0, 0.0, 0.0, DT_YEARS);
+        }
+
+        // Должны быть идентичны с точностью до float
+        assert!((damage_zero.tubulin_hyperacetylation - damage_ctrl.tubulin_hyperacetylation).abs() < 1e-6,
+            "При нулевом PTM bridge не должен менять damage");
+        assert!((damage_zero.protein_carbonylation - damage_ctrl.protein_carbonylation).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_ptm_bridge_scale_is_moderate() {
+        // За 30 лет с PTM=1.0 накопленный вклад bridge не должен превышать 30% от базовой damage
+        let params = DamageParams::default();
+        let age_yr = 30.0_f32;
+        let steps  = 365 * 30; // 30 лет
+
+        let mut damage_ctrl = CentriolarDamageState::pristine();
+        let mut damage_ptm  = CentriolarDamageState::pristine();
+
+        for _ in 0..steps {
+            accumulate_damage(&mut damage_ctrl, &params, age_yr, DT_YEARS);
+            accumulate_damage(&mut damage_ptm,  &params, age_yr, DT_YEARS);
+            apply_ptm_bridge(&mut damage_ptm, 1.0, 1.0, 1.0, 1.0, DT_YEARS);
+        }
+
+        let diff = damage_ptm.tubulin_hyperacetylation - damage_ctrl.tubulin_hyperacetylation;
+        let relative = if damage_ctrl.tubulin_hyperacetylation > 0.0 {
+            diff / damage_ctrl.tubulin_hyperacetylation
+        } else { 0.0 };
+
+        assert!(relative < 0.5,
+            "PTM bridge вклад за 30 лет должен быть < 50% от базового: relative={:.2}", relative);
+        assert!(diff > 0.0, "PTM bridge должен быть ненулевым при PTM=1.0");
     }
 }
