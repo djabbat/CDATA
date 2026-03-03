@@ -786,3 +786,111 @@ mod ptm_bridge_tests {
         assert!(diff > 0.0, "PTM bridge должен быть ненулевым при PTM=1.0");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Интеграционные тесты жизненного цикла CDATA
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use cell_dt_core::{SimulationManager, SimulationConfig};
+    use cell_dt_core::components::{CentriolePair, CellCycleStateExtended};
+    use super::damage::DamageParams;
+
+    /// Запустить симуляцию на `years` лет и вернуть `(is_alive, damage_score, age_years)`.
+    /// Параметры повреждений переопределяются сразу после инициализации.
+    ///
+    /// `is_alive` зависит от стохастического исчерпания индукторов — не используйте для
+    /// точных долгосрочных тестов. Вместо этого сравнивайте `damage_score`.
+    fn run_cdata(years: usize, damage: DamageParams) -> (bool, f32, f32) {
+        let config = SimulationConfig {
+            max_steps: (years * 365 + 100) as u64,
+            dt: 1.0,
+            checkpoint_interval: 100_000,
+            num_threads: None,
+            seed: None,
+            parallel_modules: false,
+        };
+        let mut sim = SimulationManager::new(config);
+        sim.register_module(Box::new(HumanDevelopmentModule::with_params(
+            HumanDevelopmentParams {
+                // Отключаем стохастическое отщепление индукторов для детерминизма
+                base_detach_probability: 0.0,
+                ptm_exhaustion_scale:    0.0,
+                ..HumanDevelopmentParams::default()
+            },
+        ))).unwrap();
+
+        sim.world_mut().spawn((CentriolePair::default(), CellCycleStateExtended::new()));
+        sim.initialize().unwrap();
+
+        // Переопределяем damage_rates для задания нужного темпа старения
+        {
+            let mut q = sim.world_mut().query::<&mut HumanDevelopmentComponent>();
+            for (_, comp) in q.iter() {
+                comp.damage_rates = damage.clone();
+            }
+        }
+
+        for _ in 0..(years * 365) {
+            sim.step().unwrap();
+        }
+
+        let mut q = sim.world().query::<&HumanDevelopmentComponent>();
+        q.iter()
+            .next()
+            .map(|(_, c)| (c.is_alive, c.damage_score(), c.age_years() as f32))
+            .unwrap_or((false, 0.0, 0.0))
+    }
+
+    /// Нормальное старение: повреждения ниже порога в 60 лет (нет преждевременной сенесценции)
+    #[test]
+    fn test_normal_aging_below_threshold_at_60() {
+        let (_, damage, _) = run_cdata(60, DamageParams::normal_aging());
+        assert!(
+            damage < 0.75,
+            "Нормальное старение: damage в 60 лет должен быть ниже 0.75 (фактически: {:.3})",
+            damage
+        );
+    }
+
+    /// Долгожители (×0.6 скоростей): повреждения ниже порога в 95 лет
+    /// (ожидаемая смерть от сенесценции: ~78 / 0.6 ≈ 130 лет)
+    #[test]
+    fn test_longevity_below_threshold_at_95() {
+        let (_, damage, _) = run_cdata(95, DamageParams::longevity());
+        assert!(
+            damage < 0.75,
+            "Долгожители: damage в 95 лет должен быть ниже 0.75 (фактически: {:.3})",
+            damage
+        );
+    }
+
+    /// Прогерия накапливает значительно больше повреждений чем нормальное старение
+    /// (детерминированное сравнение: progeria_damage(30) >> normal_damage(30))
+    #[test]
+    fn test_progeria_accumulates_more_damage_than_normal() {
+        let (_, d_prog, _) = run_cdata(30, DamageParams::progeria());
+        let (_, d_norm, _) = run_cdata(30, DamageParams::normal_aging());
+        assert!(
+            d_prog > d_norm * 2.0,
+            "Прогерия должна давать >2× больше повреждений к 30 годам \
+             (progeria={:.3}, normal={:.3})",
+            d_prog, d_norm
+        );
+    }
+
+    /// Долгожители накапливают значительно меньше повреждений чем нормальное старение
+    /// (детерминированное сравнение: longevity_damage(60) << normal_damage(60))
+    #[test]
+    fn test_longevity_less_damage_than_normal() {
+        let (_, d_long, _) = run_cdata(60, DamageParams::longevity());
+        let (_, d_norm, _) = run_cdata(60, DamageParams::normal_aging());
+        assert!(
+            d_long < d_norm * 0.75,
+            "Долгожители должны иметь <75% повреждений нормального старения в 60 лет \
+             (longevity={:.3}, normal={:.3})",
+            d_long, d_norm
+        );
+    }
+}

@@ -2,7 +2,7 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: 2026-03-04
+> Последнее обновление: 2026-03-04 (сессия 2)
 
 ---
 
@@ -55,6 +55,28 @@
   - 4 unit-теста
 - [x] **TODO.md** — перезаписан с актуальным статусом.
 - [x] **RECOMENDATION.md** (старый файл) — помечен как устаревший.
+- [x] **Два пути отщепления индукторов** ✅:
+  - O₂-путь (`detach_by_oxygen`): `mother_bias=0.5` (равные M/D), `age_bias_coefficient=0.0`
+  - PTM-путь истощения (`detach_by_ptm_exhaustion`): только мать, `ptm_asymmetry × ptm_exhaustion_scale`
+  - 4 unit-теста: zero_asymmetry_no_detach, zero_scale_disabled, high_asymmetry_mother_only, daughter_unchanged
+- [x] **Мониторинг индукторов в `myeloid_shift_example`** ✅ (M-ind/ΔM/D-ind/ΔD/Potency/Tel)
+- [x] **Трек C: TelomereState** ✅:
+  - `TelomereState { mean_length, shortening_per_division, is_critically_short }` в `cell_dt_core`
+  - `human_development_module`: shortening = per_division × div_rate_per_stage × spindle_f × ros_f
+  - `cell_cycle_module`: `is_critically_short → G1SRestriction` (постоянный Хейфликовский арест)
+  - 4 unit-теста в `cell_cycle_module` (hayflick_when_critical, no_arrest_before, permanent, backward_compat)
+- [x] **Трек D: EpigeneticClockState** ✅:
+  - `EpigeneticClockState { methylation_age, clock_acceleration }` в `cell_dt_core`
+  - `clock_acceleration = 1.0 + total_damage × 0.5`; `methylation_age += dt_years × clock_acceleration`
+- [x] **Технический долг** ✅:
+  - `stage_history` ограничен последними 20 (pop_front при len > 20)
+  - `DamageParams::normal_aging()` — именованный алиас для `default()`
+- [x] **Интеграционные тесты жизненного цикла** ✅ (4 детерминированных теста в `lifecycle_tests`):
+  - `test_normal_aging_below_threshold_at_60` — damage < 0.75 в 60 лет
+  - `test_longevity_below_threshold_at_95` — damage < 0.75 в 95 лет (×0.6 rates)
+  - `test_progeria_accumulates_more_damage_than_normal` — прогерия > 2× нормы за 30 лет
+  - `test_longevity_less_damage_than_normal` — долгожители < 75% нормы за 60 лет
+  - Примечание: тесты детерминированы (`base_detach_probability=0.0`); `thread_rng()` — нестохастичен
 
 ---
 
@@ -242,13 +264,13 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ## 5. НОВЫЕ БИОЛОГИЧЕСКИЕ ТРЕКИ
 
-### Трек C: Теломеры ← **СЛЕДУЮЩИЙ ШАГ**
+### Трек C: Теломеры ✅ ВЫПОЛНЕНО
 
 #### Биология и связь с CDATA
 
 | Механизм | CDATA-компонент |
 |----------|-----------------|
-| Каждое деление укорачивает теломеры (Хейфлик) | `DivisionExhaustionState.total_divisions` |
+| Каждое деление укорачивает теломеры (Хейфлик) | `div_rate` per `HumanDevelopmentalStage` |
 | Нарушенное веретено → хромосомная нестабильность → быстрее укорачивание | `spindle_fidelity ↓` |
 | ROS → окислительное повреждение теломерной ДНК | `ros_level ↑` |
 | Критически короткие → G1-арест (сенесценция, Хейфлик) | `is_critically_short → G1SRestriction` |
@@ -261,51 +283,28 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 #### Технические шаги
 
-- [ ] **`TelomereState`** — добавить в `cell_dt_core::components`:
-  ```rust
-  pub struct TelomereState {
-      pub mean_length: f32,              // T/S ratio [0..1], зигота = 1.0
-      pub shortening_per_division: f32,  // default 0.002 (≈50bp на деление)
-      pub is_critically_short: bool,     // mean_length < 0.3
-  }
-  ```
-- [ ] **`human_development_module.step()`** — читает `Option<&mut TelomereState>`:
-  ```
-  div_rate  = division_rate_per_year(stage)
-  base      = shortening_per_division × div_rate × dt_years
-  spindle_f = 1 + (1 − spindle_fidelity) × 0.5   // CDATA Трек B
-  ros_f     = 1 + ros_level × 0.3                 // ROS-петля
-  mean_length -= base × spindle_f × ros_f
-  is_critically_short = mean_length < 0.3
-  AgingPhenotype::TelomereShortening при критически коротких
-  ```
-- [ ] **`cell_cycle_module.step()`** — читает `Option<&TelomereState>`:
-  - `is_critically_short` → `Checkpoint::G1SRestriction` (постоянный Хейфликовский арест)
-- [ ] **`human_development_module.initialize()`** — добавить `TelomereState::default()`
-- [ ] **Добавить в `myeloid_shift_example`** колонку `Tel` (mean_length×100 как %)
-- [ ] **Unit-тесты (4 шт.)**:
-  - `telomere_starts_at_one` — новая сущность: mean_length == 1.0
-  - `telomere_shortens_per_step` — после N шагов с делениями: mean_length < 1.0
-  - `spindle_damage_accelerates_shortening` — spindle↓ → укорачивается быстрее
-  - `critically_short_sets_flag` — mean_length < 0.3 → is_critically_short = true
+- [x] **`TelomereState`** — добавлен в `cell_dt_core::components`
+- [x] **`human_development_module.step()`** — читает `Option<&mut TelomereState>`:
+  - `div_rate` — inline match по `HumanDevelopmentalStage` (не через `DevelopmentalStage`)
+  - `mean_length -= base × spindle_f × ros_f`
+  - `AgingPhenotype::TelomereShortening` при `is_critically_short`
+- [x] **`cell_cycle_module.step()`** — `is_critically_short → G1SRestriction` (постоянный арест)
+- [x] **`human_development_module.initialize()`** — спавнит `TelomereState::default()`
+- [x] **`myeloid_shift_example`** — колонка `Tel` (mean_length)
+- [x] **Unit-тесты (4 шт. в `cell_cycle_module`)**: hayflick_when_critical, no_arrest_before_critical, permanent, backward_compat
 
-### Трек D: Эпигенетические часы
+### Трек D: Эпигенетические часы ✅ ВЫПОЛНЕНО
 
-- [ ] **`EpigeneticClockState`** — в `cell_dt_core::components`:
+- [x] **`EpigeneticClockState`** — добавлен в `cell_dt_core::components`:
   ```rust
   pub struct EpigeneticClockState {
       pub methylation_age: f32,    // биологический возраст по CpG-метилированию
-      pub clock_acceleration: f32, // > 1 → часы спешат (стресс, болезнь)
+      pub clock_acceleration: f32, // 1.0 + total_damage × 0.5
   }
   ```
-- [ ] **Модель**: `methylation_age` догоняет `chronological_age` в молодости,
-  обгоняет при высоком `total_damage_score`
-  ```
-  d(methylation_age)/dt = 1.0 × clock_acceleration
-  clock_acceleration = 1.0 + total_damage_score × 0.5
-  ```
-- [ ] **AgingPhenotype::EpigeneticChanges** — уже есть, активировать при
-  `methylation_age > chronological_age × 1.1`
+- [x] **Модель**: `methylation_age += dt_years × clock_acceleration`
+- [ ] **AgingPhenotype::EpigeneticChanges** — уже есть; активировать при
+  `methylation_age > chronological_age × 1.1` (планируется)
 
 ### Митохондриальный трек
 
@@ -336,30 +335,28 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 ⚠️ Примечание: `myeloid_bias` в 70 лет несколько выше 0.45 из-за стохастичности
 отщепления индукторов (seed-зависимо). Принципиальных ошибок нет.
 
-### Автоматические тесты (следующий шаг)
+### Автоматические тесты ✅ ВЫПОЛНЕНО
 
-- [ ] **Интеграционный тест: 100-летняя симуляция** ← в пакете с TelomereState:
-  - Default params → все ниши умирают в диапазоне 65–95 лет
-  - `DamageParams::progeria()` → смерть в 10–25 лет
-  - `DamageParams::longevity()` → смерть после 95 лет
+- [x] **Детерминированные lifecycle-тесты** (4 шт. в `lifecycle_tests`):
+  - `test_normal_aging_below_threshold_at_60` — damage < 0.75 в 60 лет ✓
+  - `test_longevity_below_threshold_at_95` — damage < 0.75 в 95 лет ✓
+  - `test_progeria_accumulates_more_damage_than_normal` — прогерия > 2× нормы за 30 лет ✓
+  - `test_longevity_less_damage_than_normal` — долгожители < 75% нормы за 60 лет ✓
+  - **Важно**: тесты отключают `thread_rng()`-зависимый путь (`base_detach_probability=0.0`)
+    для детерминизма; проверяют molecular damage track (DamageParams), не inductor depletion
+
+- [x] **`DamageParams::normal_aging()`** — добавлен алиас для `default()` ✓
+
+- [x] **`stage_history` — ограничен pop_front при len > 20** ✓
 
 - [ ] **Тест калибровки индукторов** — при `base_detach_probability=0.002`:
   - За 78 лет: M-остаток ≤ 50% initial, D-остаток ≤ 60% initial
-  - Апоптоз через исчерпание индукторов наступает ПОСЛЕ сенесценса (не раньше)
+  - Потребует стохастического запуска или многих итераций
 
 - [ ] **Тест миелоидного сдвига** — проверить диапазоны:
   - t=20 лет: `myeloid_bias < 0.15`
   - t=70 лет: `0.35 < myeloid_bias < 0.70`
   - t=85 лет: `myeloid_bias > 0.50`
-
-- [ ] **`DamageParams::normal_aging()`** — добавить алиас:
-  ```rust
-  pub fn normal_aging() -> Self { Self::default() }
-  ```
-
-- [ ] **`stage_history` — ограничить размер VecDeque**:
-  - Сейчас неограниченный рост за 100 лет
-  - Добавить `stage_history.truncate(20)` в `step()`
 
 ---
 
@@ -414,17 +411,19 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 ✅ 5  Транскриптом → клеточный цикл (GeneExpressionState, 4 теста)
 ✅ 6  AsymmetricDivision → TissueState (DivisionExhaustionState)
 ✅ 7  PTM → CentriolarDamageState bridge (4 теста)
-✅ 8  CellCycleModule enforced checkpoints (6 тестов)
-✅ 9  Мониторинг индукторов в myeloid_shift_example
-  10  TelomereState Трек C + клеточный цикл (4 теста)        ← ТЕКУЩИЙ
-  11  Интеграционные тесты и калибровка                       → п. 6
-  12  Технический долг (stage_history, normal_aging)          → п. 8
-  13  EpigeneticClockState Трек D                             → п. 5
-  14  Инфраструктура (CSV, Python, GUI)                       → п. 7
-  15  митохондриальный модуль                                 → долгосрочно
+✅ 8  CellCycleModule enforced checkpoints (10 тестов)
+✅ 9  Мониторинг индукторов + PTM exhaustion (равные M/D, 4 теста)
+✅ 10 TelomereState Трек C + Hayflick в cell_cycle (4 теста) + Tel колонка в примере
+✅ 11 EpigeneticClockState Трек D
+✅ 12 Интеграционные тесты lifecycle (4 детерм. теста)
+✅ 13 Технический долг (stage_history pop_front, DamageParams::normal_aging())
+   14 Спавн дочерних сущностей (asymmetric_division)         → п. 3
+   15 StemCellHierarchy пластичность                         → долгосрочно
+   16 Инфраструктура (CSV, Python, GUI)                       → п. 7
+   17 митохондриальный модуль                                 → долгосрочно
 ```
 
 ---
 
 *При каждом выполненном пункте: переместить в секцию "ВЫПОЛНЕНО" вверху, обновить дату.*
-*Последнее обновление: 2026-03-04*
+*Последнее обновление: 2026-03-04 (сессия 2) — 57 тестов ✅*

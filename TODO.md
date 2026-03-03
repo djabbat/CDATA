@@ -2,7 +2,7 @@
 
 > Подробный приоритизированный список: см. **RECOMMENDATION.md**
 > Последнее обновление: 2026-03-04
-> Тесты: **45/45 ✅** | Смерть: ~78 лет ✅ | mBias@70y: 0.57 ✅
+> Тесты: **57/57 ✅** | Смерть: ~78 лет ✅ | mBias@70y: 0.57 ✅ | Треки A/B/C/D ✅
 
 ---
 
@@ -20,13 +20,20 @@
 
 ### CDATA-ядро (`human_development_module`) ✅
 - 15 стадий развития (Zygote → Elderly)
-- O₂-зависимое отщепление индукторов (M/D комплекты)
+- **Два пути отщепления индукторов:**
+  - O₂-путь: `detach_by_oxygen()`, равная вероятность M/D (`mother_bias=0.5`)
+  - PTM-путь истощения: `detach_by_ptm_exhaustion()`, только мать (`ptm_exhaustion_scale=0.001`)
 - Накопление повреждений: 5 молекулярных типов + 4 аппендажных + ROS-петля
+- `DamageParams::normal_aging()` — именованный алиас для `default()`
 - Трек A (цилии → регенерация) и Трек B (веретено → пул стволовых)
-- 10 фенотипов старения + `ImmuneDecline`
+- **Трек C (теломеры):** `TelomereState` — shortening × spindle_f × ros_f → `AgingPhenotype::TelomereShortening`
+- **Трек D (эпигенетика):** `EpigeneticClockState` — `methylation_age += dt × (1 + damage × 0.5)`
+- 10 фенотипов старения + `ImmuneDecline` + `TelomereShortening`
 - 3 пути смерти: сенесценс / апоптоз через индукторы / критическая дряхлость
 - Inflammaging-буст: читает `InflammagingState`, применяет `ros_boost` и `niche_impairment`
 - Синхронизация standalone `CentriolarDamageState` каждый step()
+- `stage_history`: ограничен последними 20 стадиями (pop_front)
+- **17 unit + lifecycle тестов**, включая 4 детерминированных интеграционных
 - Калибровка: смерть ≈ 78 лет (normal), прогерия (×5), долгожители (×0.6)
 
 ### Транскриптом → Клеточный цикл ✅ NEW
@@ -52,8 +59,8 @@
   - `methylation_level × 0.5` → `protein_aggregates`
 - 4 unit-теста: bridge_increases_hyperacetylation, bridge_increases_carbonylation, bridge_zero_with_no_ptm, bridge_scale_is_moderate
 
-### Мониторинг индукторов (`myeloid_shift_example`) ✅ NEW
-- Колонки M-ind / ΔM / D-ind / ΔD / Potency в ежегодной таблице
+### Мониторинг индукторов и теломер (`myeloid_shift_example`) ✅
+- Колонки M-ind / ΔM / D-ind / ΔD / Potency / **Tel** в ежегодной таблице
 - Дельта за 10-летний интервал: `=` если нет изменений, `+/-N` иначе
 - Секция `=== Inductor system ===` в финальном отчёте: remaining/inherited, fraction, division_count
 - Калибровка (seed=42): M: 10→3, D: 8→3 за 70 лет; смерть ≈78 лет ✓
@@ -85,8 +92,12 @@
 - Учёт стресса и факторов роста
 - **G1/S checkpoint**: арест при `total_damage_score() > checkpoint_strictness`
 - **G2/M checkpoint (SAC)**: арест при `spindle_fidelity < (1 - checkpoint_strictness)`
+- **p21 > 0.7** → временный G1SRestriction (снимается при p21 ≤ 0.7)
+- **p16 > 0.8** → постоянный DNARepair (сенесценция)
+- **cyclin_d** → укорачивает G1 (`G1_duration / (1 + cyclin_d × 0.5)`)
+- **Предел Хейфлика** → `TelomereState.is_critically_short` → постоянный G1SRestriction
 - Growth factors синхронизированы с `CentriolarDamageState`
-- 6 unit-тестов
+- **14 unit-тестов** (включая 4 теста Hayflick + 4 теста GeneExpressionState)
 
 ### Транскриптом (`transcriptome_module`) 🟡
 - Экспрессия генов, транскрипционные факторы, сигнальные пути
@@ -103,23 +114,17 @@
 
 ## 🔧 Следующие шаги (по приоритету)
 
-1. **Трек C: TelomereState** ← СЛЕДУЮЩИЙ
-   - `TelomereState { mean_length, shortening_per_division, is_critically_short }` в `cell_dt_core`
-   - `human_development_module`: shortening = per_division × div_rate × dt × spindle_f × ros_f
-   - `cell_cycle_module`: `is_critically_short → G1SRestriction` (Хейфликовский арест)
-   - `initialize()` спавнит TelomereState; колонка `Tel` в примере
-   - 4 unit-теста (starts_at_one, shortens, spindle_accelerates, flag)
-2. **Интеграционные тесты** — 100-летняя симуляция (normal/progeria/longevity), тест индукторов, тест mBias
-3. **Технический долг** — `stage_history.truncate(20)`, `DamageParams::normal_aging()` алиас
-4. **Трек D: EpigeneticClockState** — methylation_age, clock_acceleration = 1 + damage × 0.5
+1. **Спавн дочерних сущностей** (`asymmetric_division_module`) — создание новых entity при делении
+2. **StemCellHierarchy пластичность** — де-дифференцировка при `enable_plasticity=true`
+3. **CSV-экспорт** — подключить `DataExporter` к `SimulationManager`
+4. **Python-биндинги** — `cell_dt_python` (PyO3, `run_simulation() → DataFrame`)
 
 ## ⬜ Долгосрочные планы
 
-- Теломерный Трек C (`TelomereState`)
-- Эпигенетические часы Трек D (`EpigeneticClockState`)
-- Митохондриальный модуль (`mitochondrial_module`)
+- Митохондриальный модуль (`mitochondrial_module`) — `MitochondrialState`, mtDNA, питает ros_level
 - Python биндинги (`cell_dt_python`) — `run_simulation() → DataFrame`
-- GUI панель управления — слайдеры для всех параметров
+- GUI панель управления — слайдеры для DamageParams, InducerDetachmentParams
+- Очистка мёртвых сущностей из ECS-мира
 
 ---
 
@@ -145,7 +150,7 @@ cargo run --bin transcriptome_example
 # I/O
 cargo run --bin io_example
 
-# Все тесты (45 тестов)
+# Все тесты (57 тестов)
 cargo test
 
 # Документация
