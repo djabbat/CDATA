@@ -14,12 +14,13 @@ use cell_dt_core::{
     components::{
         CellCycleStateExtended, CentriolarDamageState,
         DivisionExhaustionState, Phase, PotencyLevel,
+        InflammagingState,
     },
     hecs::World,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use log::{info, debug};
+use log::{info, debug, trace, warn};
 use std::collections::HashMap;
 
 /// Тип деления стволовой клетки
@@ -69,6 +70,11 @@ pub struct AsymmetricDivisionParams {
     pub max_niches: usize,
     /// Порог spindle_fidelity ниже которого деление всегда симметричное (истощение)
     pub spindle_failure_threshold: f32,
+    /// Максимальное число сущностей в мире (защита от экспоненциального роста).
+    /// При достижении лимита спавн дочерних сущностей прекращается.
+    pub max_entities: usize,
+    /// Включить спавн дочерних сущностей при асимметричном делении.
+    pub enable_daughter_spawn: bool,
 }
 
 impl Default for AsymmetricDivisionParams {
@@ -80,6 +86,8 @@ impl Default for AsymmetricDivisionParams {
             stem_cell_niche_capacity: 10,
             max_niches: 100,
             spindle_failure_threshold: 0.3,
+            max_entities: 1000,
+            enable_daughter_spawn: false,  // выключено по умолчанию (opt-in)
         }
     }
 }
@@ -166,7 +174,15 @@ impl SimulationModule for AsymmetricDivisionModule {
 
     fn step(&mut self, world: &mut World, _dt: f64) -> SimulationResult<()> {
         self.step_count += 1;
-        debug!("Asymmetric division step {}", self.step_count);
+        trace!("Asymmetric division step {}", self.step_count);
+
+        // Очередь спавна дочерних сущностей — заполняется во время итерации,
+        // применяется после (hecs не допускает спавн внутри query_mut).
+        // Хранит: (damage_state_родителя, spawn_needed)
+        let mut spawn_queue: Vec<CentriolarDamageState> = Vec::new();
+        let enable_spawn  = self.params.enable_daughter_spawn;
+        let max_entities  = self.params.max_entities;
+        let spindle_thresh = self.params.spindle_failure_threshold;
 
         // Определяем тип деления для каждой сущности с нужными компонентами.
         // CentriolarInducerPair хранится в HumanDevelopmentComponent, но здесь
@@ -201,7 +217,7 @@ impl SimulationModule for AsymmetricDivisionModule {
             if let Some(div_type) = Self::classify_division(
                 proxy_potency,
                 damage.spindle_fidelity,
-                self.params.spindle_failure_threshold,
+                spindle_thresh,
             ) {
                 // Статистика в AsymmetricDivisionComponent
                 match div_type {
@@ -220,11 +236,45 @@ impl SimulationModule for AsymmetricDivisionModule {
                         _ => {}
                     }
                 }
+
+                // При асимметричном делении — добавить в очередь спавна дочерней клетки.
+                // Дочерняя клетка получает слегка повреждённое состояние от родителя
+                // (наследует ROS-уровень, но остальные повреждения ≈ 0).
+                if enable_spawn && div_type == DivisionType::Asymmetric {
+                    let mut daughter_damage = CentriolarDamageState::pristine();
+                    // Дочерняя клетка наследует часть ROS-уровня ниши (mitochondrial legacy)
+                    daughter_damage.ros_level = damage.ros_level * 0.3;
+                    spawn_queue.push(daughter_damage);
+                }
             }
 
             // Обновить stemness_potential из spindle_fidelity
             div_comp.stemness_potential = damage.spindle_fidelity
                 * (1.0 - damage.protein_aggregates * 0.3);
+        }
+
+        // Спавн дочерних сущностей (вне итерации, чтобы не нарушать borrow)
+        // Ограничение: не превышать max_entities (защита от экспоненциального роста)
+        if !spawn_queue.is_empty() {
+            let current_count = world.len() as usize;
+            let available_slots = max_entities.saturating_sub(current_count);
+            let to_spawn = spawn_queue.len().min(available_slots);
+
+            if to_spawn < spawn_queue.len() {
+                warn!("AsymmetricDivision: entity limit reached ({}/{}), spawning {}/{}",
+                    current_count, max_entities, to_spawn, spawn_queue.len());
+            }
+
+            for daughter_damage in spawn_queue.into_iter().take(to_spawn) {
+                let _ = world.spawn((
+                    CellCycleStateExtended::new(),       // требуется другими модулями
+                    daughter_damage,                      // слегка повреждённая → pristine
+                    AsymmetricDivisionComponent::default(),
+                    DivisionExhaustionState::default(),
+                    InflammagingState::default(),
+                ));
+                trace!("AsymmetricDivision: daughter entity spawned");
+            }
         }
 
         Ok(())
@@ -238,6 +288,8 @@ impl SimulationModule for AsymmetricDivisionModule {
             "stem_cell_niche_capacity":        self.params.stem_cell_niche_capacity,
             "max_niches":                      self.params.max_niches,
             "spindle_failure_threshold":       self.params.spindle_failure_threshold,
+            "max_entities":                    self.params.max_entities,
+            "enable_daughter_spawn":           self.params.enable_daughter_spawn,
             "step_count":                      self.step_count,
             "active_niches":                   self.niches.len(),
         })
@@ -249,6 +301,12 @@ impl SimulationModule for AsymmetricDivisionModule {
         }
         if let Some(v) = params.get("spindle_failure_threshold").and_then(|v| v.as_f64()) {
             self.params.spindle_failure_threshold = v as f32;
+        }
+        if let Some(v) = params.get("max_entities").and_then(|v| v.as_u64()) {
+            self.params.max_entities = v as usize;
+        }
+        if let Some(v) = params.get("enable_daughter_spawn").and_then(|v| v.as_bool()) {
+            self.params.enable_daughter_spawn = v;
         }
         Ok(())
     }

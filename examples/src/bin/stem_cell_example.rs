@@ -43,6 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stem_cell_niche_capacity: 5,
         max_niches: 10,
         spindle_failure_threshold: 0.3,
+        max_entities: 1000,
+        enable_daughter_spawn: false,
     };
     let mut asymmetric_module = AsymmetricDivisionModule::with_params(asymmetric_params);
     

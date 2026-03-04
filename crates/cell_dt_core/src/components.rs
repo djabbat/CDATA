@@ -198,6 +198,20 @@ pub struct CellCycleStateExtended {
 }
 
 impl CellCycleStateExtended {
+    /// Создать клетку в фазе G1 (начало цикла).
+    ///
+    /// **Обязательный компонент при спавне сущностей.**
+    /// Большинство модулей обнаруживают управляемые ими сущности именно по наличию
+    /// `CellCycleStateExtended`. При спавне новой сущности всегда включайте этот компонент
+    /// первым, затем остальные:
+    ///
+    /// ```rust,ignore
+    /// world.spawn((
+    ///     CellCycleStateExtended::new(),   // ← обязателен
+    ///     CentriolarDamageState::pristine(),
+    ///     // ... остальные компоненты
+    /// ));
+    /// ```
     pub fn new() -> Self {
         Self {
             phase: Phase::G1,

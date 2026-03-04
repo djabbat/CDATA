@@ -2,9 +2,11 @@
 
 mod csv_exporter;
 mod config;
+mod cdata_exporter;
 
 pub use csv_exporter::*;
 pub use config::*;
+pub use cdata_exporter::{CdataRecord, CdataExporter, write_cdata_csv};
 
 use cell_dt_core::{
     components::*,
@@ -162,5 +164,10 @@ impl DataExporter {
     
     pub fn clear(&mut self) {
         self.buffer.clear();
+    }
+
+    /// Число записей в буфере (до сохранения)
+    pub fn buffered(&self) -> usize {
+        self.buffer.len()
     }
 }

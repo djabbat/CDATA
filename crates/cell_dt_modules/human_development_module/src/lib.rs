@@ -32,7 +32,7 @@ use cell_dt_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use log::{info, debug};
+use log::{info, debug, warn, trace};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use std::collections::VecDeque;
@@ -241,6 +241,8 @@ impl HumanDevelopmentModule {
         else                  { HumanDevelopmentalStage::Elderly };
 
         if new_stage != comp.stage {
+            info!("Stage transition {:?} → {:?} at age {:.3} yr ({:?})",
+                  comp.stage, new_stage, age, comp.tissue_type);
             comp.stage_history.push_back((new_stage, age));
             if comp.stage_history.len() > 20 {
                 comp.stage_history.pop_front(); // храним только последние 20 стадий
@@ -366,7 +368,7 @@ impl SimulationModule for HumanDevelopmentModule {
         let dt_days  = dt * self.params.time_acceleration;
         let dt_years = (dt_days / 365.25) as f32;
 
-        debug!("Human development step {}, dt_days={:.3}", self.step_count, dt_days);
+        trace!("Human development step {}, dt_days={:.3}", self.step_count, dt_days);
 
         // Синхронизировать DamageParams если они были изменены через set_params()
         if self.damage_rates_dirty {
@@ -459,6 +461,19 @@ impl SimulationModule for HumanDevelopmentModule {
                         + ptm_methyl      * PTM_SCALE * 0.5 * dt_years).min(1.0);
                     if ptm_acetylation + ptm_oxidation + ptm_phospho > 0.0 {
                         dam.update_functional_metrics();
+                    }
+                }
+
+                // Проверка на биологически нереалистичные значения
+                {
+                    let dam = &comp.centriolar_damage;
+                    if dam.ros_level > 1.0 {
+                        warn!("ros_level={:.3} > 1.0 at age {:.1} yr ({:?}) — clamp needed",
+                              dam.ros_level, comp.age_years(), comp.tissue_type);
+                    }
+                    if dam.total_damage_score() > 1.0 {
+                        warn!("total_damage_score={:.3} > 1.0 at age {:.1} yr ({:?})",
+                              dam.total_damage_score(), comp.age_years(), comp.tissue_type);
                     }
                 }
 
@@ -583,7 +598,7 @@ impl SimulationModule for HumanDevelopmentModule {
                     || comp.frailty() >= 0.97
                 {
                     comp.is_alive = false;
-                    debug!(
+                    info!(
                         "Niche {:?} died at age {:.1} yr \
                          (senescent={}, potency={:?}, frailty={:.3})",
                         comp.tissue_type,

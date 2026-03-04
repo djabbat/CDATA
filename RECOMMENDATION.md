@@ -2,7 +2,7 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: 2026-03-04 (сессия 2)
+> Последнее обновление: 2026-03-04 (сессия 5)
 
 ---
 
@@ -212,17 +212,17 @@ sasp_intensity   = inflammaging_index           → InflammagingState
   - 6 unit-тестов пройдены: ptm_starts_at_zero, increases_after_steps,
     mother_accumulates_faster, m_phase_boosts, ptm_clamped_at_one, daughter_factor_zero
 
-- [ ] **`AsymmetricDivisionModule` — спавн дочерних сущностей** (опционально):
-  - При `DivisionType::Asymmetric` → `world.spawn(...)` новой сущности с:
-    - `CentriolarInducerPair` = результат `parent_pair.divide().1`
-    - `CentriolarDamageState::pristine()` (молодая дочерняя клетка)
-  - Ограничение: `max_entities: usize` параметр, не спавнить если превышено
-  - *Риск:* Экспоненциальный рост числа сущностей — осторожно
+- [x] **`AsymmetricDivisionModule` — спавн дочерних сущностей** ✅ (сессия 4):
+  - `enable_daughter_spawn: bool` (default: false, opt-in) + `max_entities: usize` (default: 1000)
+  - Spawn queue pattern: собирается во время `query_mut`, применяется после
+  - Дочерняя клетка наследует `ros_level * 0.3` от родителя (mitochondrial legacy)
+  - Компоненты новой сущности: `CellCycleStateExtended`, `CentriolarDamageState::pristine()`,
+    `AsymmetricDivisionComponent::default()`, `DivisionExhaustionState::default()`, `InflammagingState::default()`
 
-- [ ] **`StemCellHierarchyModule` — пластичность** (`plasticity_rate`):
+- [x] **`StemCellHierarchyModule` — пластичность** ✅ (сессия 3):
   - При `enable_plasticity = true` и `potency == Oligopotent`:
-    вероятность `plasticity_rate` перехода в `Pluripotent` если `spindle_fidelity > 0.6`
-  - Имитирует де-дифференцировку при нишевых сигналах
+    вероятность `plasticity_rate` перехода в `Pluripotent` если `spindle_fidelity > differentiation_threshold`
+  - `dedifferentiation_count: u32` — счётчик событий; 2 unit-теста
 
 - [x] **`CellCycleModule` — enforced checkpoints** — реализовано ✅:
   - G1/S checkpoint: `total_damage_score() > checkpoint_strictness` → `G1SRestriction` (арест)
@@ -303,8 +303,8 @@ sasp_intensity   = inflammaging_index           → InflammagingState
   }
   ```
 - [x] **Модель**: `methylation_age += dt_years × clock_acceleration`
-- [ ] **AgingPhenotype::EpigeneticChanges** — уже есть; активировать при
-  `methylation_age > chronological_age × 1.1` (планируется)
+- [x] **AgingPhenotype::EpigeneticChanges** ✅ — активируется при `clock_acceleration > 1.2`
+  - `epi_ros_contribution` → подаётся в `accumulate_damage()` следующего шага (лаг 1 шаг)
 
 ### Митохондриальный трек
 
@@ -362,9 +362,12 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ## 7. ИНФРАСТРУКТУРА И ЭКСПОРТ
 
-- [ ] **CSV-экспорт через `cell_dt_io`** — подключить `DataExporter` к `SimulationManager`:
-  - Выгружать каждые `checkpoint_interval` шагов
+- [x] **CSV-экспорт через `cell_dt_io`** ✅ (сессия 4):
+  - `CdataRecord` + `CdataExporter` + `write_cdata_csv` в `cell_dt_io/src/cdata_exporter.rs`
   - Колонки: `step, entity_id, tissue, age_years, stage, damage_score, myeloid_bias, spindle_fidelity, ciliary_function, frailty, phenotype_count`
+  - `CdataExporter::collect(world, step)` — запрос по `(&HumanDevelopmentComponent, Option<&MyeloidShiftComponent>)`
+  - `io_example.rs` обновлён: демонстрирует `DataExporter` (базовые данные) + `CdataExporter` (CDATA)
+  - `DataExporter::buffered()` — добавлен метод проверки размера буфера
 
 - [ ] **Визуализация через `cell_dt_viz`** — добавить:
   - Временной ряд: `damage_score`, `myeloid_bias`, `spindle_fidelity`, `frailty` по оси времени
@@ -387,17 +390,54 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 - [ ] **Дублирование tissue_type** — `TissueType` (в core) и `HumanTissueType` (в human_development_module)
   конвертируются через `map_tissue_type()` в `lib.rs`. Рассмотреть слияние или перенос `map_tissue_type` в core.
 
-- [ ] **Логирование** — сейчас всё на уровне `debug!`. Добавить:
-  - `trace!` для per-entity per-step событий
-  - `info!` для milestone (смерть ниши, смена стадии, активация фенотипа)
-  - `warn!` для биологически нереалистичных значений (damage > 1.0, myeloid_bias = 1.0)
+- [x] **Логирование** ✅ (сессия 5):
+  - `trace!` — per-step начала (human_dev, myeloid_shift, cell_cycle, asymmetric_div)
+  - `info!` — milestone: смерть ниши, смена стадии, G1/S/G2M аресты, Hayflick, p16/p21
+  - `warn!` — нереалистичные значения: ros_level > 1.0, total_damage_score > 1.0, myeloid_bias ≥ 0.95, entity limit
 
-- [ ] **Параметры `DamageParams` не доступны через панель управления** — добавить `get_params`/`set_params` для `base_ros_damage_rate`, `aggregation_rate`, `senescence_threshold`
+- [x] **Параметры `DamageParams` доступны через панель управления** ✅ (сессия 3):
+  `get_params`/`set_params` с полями `base_ros_damage_rate`, `aggregation_rate`, `senescence_threshold`, `damage_preset`
 
-- [ ] **`CellCycleStateExtended::new()` используется везде для спавна** — явно задокументировать, что он необходим для инициализации большинства модулей (все модули ищут сущности по наличию этого компонента).
+- [x] **`CellCycleStateExtended::new()` задокументирован** ✅ (сессия 5):
+  doc-comment поясняет обязательность компонента при спавне + пример кода.
 
-- [ ] **Очистка dead-сущностей** — сейчас `is_alive = false` но сущность остаётся в мире.
-  Добавить в `SimulationManager` опциональный проход удаления мёртвых сущностей каждые N шагов.
+- [x] **Очистка dead-сущностей** ✅ (сессия 3):
+  `Dead`-маркер + `SimulationManager::cleanup_dead_entities()` + `cleanup_dead_interval: Option<u64>` в конфиге.
+
+---
+
+## 9. ИСПРАВЛЕНИЯ ЛОГИЧЕСКИХ ОШИБОК (сессия 4)
+
+- [x] **Fix 1: HashMap → Vec** — `SimulationManager.modules: Vec<(String, Box<dyn SimulationModule>)>`.
+  Гарантирует порядок выполнения = порядку регистрации. Тест `test_module_execution_order_is_guaranteed`.
+
+- [x] **Fix 2: Петля ros_boost** — `accumulate_damage()` принимает 5-й аргумент `ros_level_boost: f32`.
+  `ros_level` вычисляется ДО `protein_carbonylation`. Устранена ошибка: boost не влиял на carbonylation.
+
+- [x] **Fix 3: senescence_threshold параметризован** — `CentriolarDamageState.senescence_threshold: f32`
+  синхронизируется из `DamageParams` каждый шаг. `update_functional_metrics()` использует `self.senescence_threshold`.
+
+- [x] **Fix 4: Seeded RNG** — `SimulationModule::set_seed(u64)` в трейте (default no-op).
+  `HumanDevelopmentModule`, `StemCellHierarchyModule`, `TranscriptomeModule` → `StdRng::seed_from_u64(seed)`.
+
+- [x] **Fix 5: lymphoid_deficit** — независимая формула:
+  `(1-cilia)×0.55 + aggregates×0.35 + hyperacetylation×0.10`. Ранее: тавтология `= myeloid_bias`.
+
+- [x] **Fix 6: Мутация случайного гена** — `apply_mutation()` выбирает ген по случайному индексу.
+  Ранее: `HashMap::values_mut().next()` — всегда первый "случайный" ключ.
+
+- [x] **Fix 7: Теломеры в стволовых клетках** — TERT-защита:
+  - Эмбриональные стадии (Zygote..Fetal): укорочения нет
+  - `spindle_fidelity ≥ 0.75` (Pluripotent/Totipotent): укорочения нет
+
+- [x] **Fix 8: EpigeneticClockState → обратная связь** — `epi_ros_contribution` питает ROS следующего шага.
+  Активация `AgingPhenotype::EpigeneticChanges` при ускорении часов.
+
+- [x] **Fix 9: Оптимизации** —
+  - `update_functional_capacity()` вызывается один раз в конце всех тканевых обновлений
+  - `expression_history: VecDeque` в transcriptome_module
+  - `InducerDetachmentParams: #[derive(Copy)]`
+  - Удалён неиспользуемый `DevelopmentParams::s_inducers_initial`
 
 ---
 
@@ -414,16 +454,19 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 ✅ 8  CellCycleModule enforced checkpoints (10 тестов)
 ✅ 9  Мониторинг индукторов + PTM exhaustion (равные M/D, 4 теста)
 ✅ 10 TelomereState Трек C + Hayflick в cell_cycle (4 теста) + Tel колонка в примере
-✅ 11 EpigeneticClockState Трек D
+✅ 11 EpigeneticClockState Трек D + epi_ros_contribution обратная связь
 ✅ 12 Интеграционные тесты lifecycle (4 детерм. теста)
 ✅ 13 Технический долг (stage_history pop_front, DamageParams::normal_aging())
-   14 Спавн дочерних сущностей (asymmetric_division)         → п. 3
-   15 StemCellHierarchy пластичность                         → долгосрочно
-   16 Инфраструктура (CSV, Python, GUI)                       → п. 7
-   17 митохондриальный модуль                                 → долгосрочно
+✅ 14 Dead-маркер + cleanup_dead_entities (сессия 3)
+✅ 15 StemCellHierarchy пластичность / дедифференцировка (сессия 3)
+✅ 16 DamageParams панель управления (сессия 3)
+✅ 17 Исправления логических ошибок (Fix 1–9, сессия 4) — 62/62 тестов
+✅ 18 Спавн дочерних сущностей (asymmetric_division)         → п. 3
+✅ 19 CSV CDATA-экспорт (CdataExporter, io_example обновлён) → п. 7
+   20 митохондриальный модуль                                 → долгосрочно
 ```
 
 ---
 
 *При каждом выполненном пункте: переместить в секцию "ВЫПОЛНЕНО" вверху, обновить дату.*
-*Последнее обновление: 2026-03-04 (сессия 2) — 57 тестов ✅*
+*Последнее обновление: 2026-03-04 (сессия 5) — 62 теста ✅*

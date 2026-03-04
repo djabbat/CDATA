@@ -27,7 +27,7 @@ use cell_dt_core::{
     hecs::World,
 };
 use serde_json::{json, Value};
-use log::{info, debug};
+use log::{info, debug, trace};
 
 /// Параметры модуля клеточного цикла
 #[derive(Debug, Clone)]
@@ -170,7 +170,7 @@ impl CellCycleModule {
                     if let Some(dmg) = damage {
                         if dmg.total_damage_score() > strictness {
                             cell_cycle.current_checkpoint = Some(Checkpoint::G1SRestriction);
-                            debug!("G1/S checkpoint (damage): {:.3} > {:.3}",
+                            info!("G1/S checkpoint (damage): {:.3} > {:.3}",
                                 dmg.total_damage_score(), strictness);
                             return false;
                         }
@@ -180,13 +180,13 @@ impl CellCycleModule {
                 if let Some(gx) = gene_expr {
                     if gx.p21_level > 0.7 {
                         cell_cycle.current_checkpoint = Some(Checkpoint::G1SRestriction);
-                        debug!("G1/S checkpoint (p21): {:.3}", gx.p21_level);
+                        info!("G1/S checkpoint (p21): {:.3}", gx.p21_level);
                         return false;
                     }
                     // p16 → постоянный арест (сенесценция)
                     if gx.p16_level > 0.8 {
                         cell_cycle.current_checkpoint = Some(Checkpoint::DNARepair);
-                        debug!("Senescence checkpoint (p16): {:.3}", gx.p16_level);
+                        info!("Senescence checkpoint (p16): {:.3}", gx.p16_level);
                         return false;
                     }
                 }
@@ -194,7 +194,7 @@ impl CellCycleModule {
                 if let Some(tel) = telomere {
                     if tel.is_critically_short {
                         cell_cycle.current_checkpoint = Some(Checkpoint::G1SRestriction);
-                        debug!("Hayflick arrest: telomere critically short ({:.3})", tel.mean_length);
+                        info!("Hayflick arrest: telomere critically short ({:.3})", tel.mean_length);
                         return false;
                     }
                 }
@@ -213,7 +213,7 @@ impl CellCycleModule {
                     if let Some(dmg) = damage {
                         if dmg.spindle_fidelity < (1.0 - strictness) {
                             cell_cycle.current_checkpoint = Some(Checkpoint::SpindleAssembly);
-                            debug!("G2/M checkpoint: spindle={:.3} < {:.3}",
+                            info!("G2/M checkpoint: spindle={:.3} < {:.3}",
                                 dmg.spindle_fidelity, 1.0 - strictness);
                             return false;
                         }
@@ -242,7 +242,7 @@ impl SimulationModule for CellCycleModule {
         self.step_count += 1;
         let dt_f32 = dt as f32;
 
-        debug!("Cell cycle module step {}", self.step_count);
+        trace!("Cell cycle module step {}", self.step_count);
 
         self.cells_arrested = 0;
         self.cells_divided  = 0;

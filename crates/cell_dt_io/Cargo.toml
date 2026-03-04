@@ -7,6 +7,8 @@ edition = "2021"
 cell_dt_core = { path = "../cell_dt_core" }
 centriole_module = { path = "../cell_dt_modules/centriole_module" }
 cell_cycle_module = { path = "../cell_dt_modules/cell_cycle_module" }
+human_development_module = { path = "../cell_dt_modules/human_development_module" }
+myeloid_shift_module = { path = "../cell_dt_modules/myeloid_shift_module" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 csv = "1.3"

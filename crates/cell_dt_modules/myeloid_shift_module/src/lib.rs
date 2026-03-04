@@ -36,7 +36,7 @@ use cell_dt_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use log::{info, debug};
+use log::{info, debug, trace, warn};
 
 // ---------------------------------------------------------------------------
 // Публичные типы
@@ -176,7 +176,7 @@ impl SimulationModule for MyeloidShiftModule {
 
     fn step(&mut self, world: &mut World, _dt: f64) -> SimulationResult<()> {
         self.step_count += 1;
-        debug!("MyeloidShift step {}", self.step_count);
+        trace!("MyeloidShift step {}", self.step_count);
 
         // Читаем CentriolarDamageState (standalone, синхронизирован human_development_module)
         // и пишем MyeloidShiftComponent + InflammagingState.
@@ -201,6 +201,11 @@ impl SimulationModule for MyeloidShiftModule {
             // Иммунное старение: вклад SASP и дефицита Т-/B-клеток
             let immune_senescence = (inflammaging_index * 0.70
                 + (1.0 - damage.ciliary_function) * 0.30).clamp(0.0, 1.0);
+
+            // Предупреждение: критический иммуностарение
+            if myeloid_bias >= 0.95 {
+                warn!("myeloid_bias={:.3} ≥ 0.95 — severe immunosenescence", myeloid_bias);
+            }
 
             // Обновляем компонент
             myeloid.myeloid_bias      = myeloid_bias;
