@@ -2,36 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Специфичные для человека типы тканей
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum HumanTissueType {
-    /// Нервная ткань
-    Neural,
-    /// Мышечная ткань
-    Muscle,
-    /// Эпителиальная ткань
-    Epithelial,
-    /// Соединительная ткань
-    Connective,
-    /// Кровь
-    Blood,
-    /// Костная ткань
-    Bone,
-    /// Хрящевая ткань
-    Cartilage,
-    /// Жировая ткань
-    Adipose,
-    /// Печень
-    Liver,
-    /// Почки
-    Kidney,
-    /// Сердце
-    Heart,
-    /// Легкие
-    Lung,
-    /// Кожа
-    Skin,
-}
+/// Псевдоним для [`cell_dt_core::components::TissueType`].
+///
+/// Ранее существовал как отдельный enum с теми же вариантами.
+/// Слит в единый тип в `cell_dt_core` — псевдоним сохранён
+/// для обратной совместимости публичного API.
+pub use cell_dt_core::components::TissueType as HumanTissueType;
 
 /// Параметры развития тканей
 #[derive(Debug, Clone)]

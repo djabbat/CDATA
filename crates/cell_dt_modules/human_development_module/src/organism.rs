@@ -44,9 +44,9 @@ impl OrganismSimulator {
         }
 
         let neural = find_tissue(tissues, TissueType::Neural);
-        let hsc    = find_tissue(tissues, TissueType::Hematopoietic);
+        let hsc    = find_tissue(tissues, TissueType::Blood);
         let muscle = find_tissue(tissues, TissueType::Muscle);
-        let gut    = find_tissue(tissues, TissueType::IntestinalCrypt);
+        let gut    = find_tissue(tissues, TissueType::Epithelial);
 
         // --- Когнитивный индекс (нейральные стволовые клетки) ---
         if let Some(t) = neural {

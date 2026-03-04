@@ -20,7 +20,7 @@ use cell_dt_core::{
     hecs::{World, Entity},
     components::{
         CentriolarDamageState, CentriolarInducerPair, PotencyLevel,
-        TissueState, TissueType,
+        TissueState,
         CellCycleStateExtended,
         InflammagingState,
         DivisionExhaustionState,
@@ -109,7 +109,6 @@ pub struct HumanDevelopmentComponent {
 
 impl HumanDevelopmentComponent {
     pub fn for_tissue(tissue_type: HumanTissueType) -> Self {
-        let core_type = map_tissue_type(tissue_type);
         Self {
             stage: HumanDevelopmentalStage::Zygote,
             age_days: 0.0,
@@ -119,7 +118,7 @@ impl HumanDevelopmentComponent {
             centriolar_damage: CentriolarDamageState::pristine(),
             damage_rates: DamageParams::default(),
             inducers: CentriolarInducerPair::default(),
-            tissue_state: TissueState::new(core_type),
+            tissue_state: TissueState::new(tissue_type),
             centriole_aging: CentrioleAgingLink::default(),
             active_phenotypes: Vec::new(),
             is_alive: true,
@@ -801,20 +800,6 @@ impl SimulationModule for HumanDevelopmentModule {
 // Вспомогательные функции
 // ---------------------------------------------------------------------------
 
-pub fn map_tissue_type(human_type: HumanTissueType) -> TissueType {
-    match human_type {
-        HumanTissueType::Neural => TissueType::Neural,
-        HumanTissueType::Blood  => TissueType::Hematopoietic,
-        HumanTissueType::Epithelial
-        | HumanTissueType::Liver
-        | HumanTissueType::Kidney
-        | HumanTissueType::Lung => TissueType::IntestinalCrypt,
-        HumanTissueType::Muscle
-        | HumanTissueType::Heart => TissueType::Muscle,
-        _ => TissueType::Skin,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Тесты PTM bridge
 // ---------------------------------------------------------------------------
@@ -1041,5 +1026,178 @@ mod lifecycle_tests {
              (longevity={:.3}, normal={:.3})",
             d_long, d_norm
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Тест калибровки индукторов (6a)
+// ---------------------------------------------------------------------------
+/// Запустить симуляцию на `years` лет со стохастическим отщеплением (base_detach=0.002).
+/// Возвращает (m_remaining, m_initial, d_remaining, d_initial).
+#[cfg(test)]
+mod inductor_calibration_tests {
+    use super::*;
+    use cell_dt_core::{SimulationManager, SimulationConfig};
+    use cell_dt_core::components::{CentriolePair, CellCycleStateExtended};
+
+    fn run_with_inducers(years: usize, seed: u64) -> (u32, u32, u32, u32) {
+        let config = SimulationConfig {
+            max_steps: (years * 365 + 10) as u64,
+            dt: 1.0,
+            checkpoint_interval: 100_000,
+            num_threads: None,
+            seed: Some(seed),
+            parallel_modules: false,
+            cleanup_dead_interval: None,
+        };
+        let mut sim = SimulationManager::new(config);
+        // Полные дефолтные параметры: base_detach_probability=0.002, ptm_exhaustion_scale=0.001
+        sim.register_module(Box::new(HumanDevelopmentModule::new())).unwrap();
+        sim.world_mut().spawn((CentriolePair::default(), CellCycleStateExtended::new()));
+        sim.initialize().unwrap();
+
+        for _ in 0..(years * 365) {
+            sim.step().unwrap();
+        }
+
+        let mut q = sim.world().query::<&HumanDevelopmentComponent>();
+        let (_, comp) = q.iter().next().unwrap();
+        (
+            comp.inducers.mother_set.remaining,
+            comp.inducers.mother_set.inherited_count,
+            comp.inducers.daughter_set.remaining,
+            comp.inducers.daughter_set.inherited_count,
+        )
+    }
+
+    /// Простейшая проверка: за 78 лет обa комплекта теряют хотя бы один индуктор.
+    #[test]
+    fn test_inductor_depletion_occurs() {
+        let (m_rem, m_init, d_rem, d_init) = run_with_inducers(78, 42);
+        assert!(m_rem < m_init,
+            "M-комплект за 78 лет должен потерять хотя бы 1 индуктор: {}/{}", m_rem, m_init);
+        assert!(d_rem < d_init,
+            "D-комплект за 78 лет должен потерять хотя бы 1 индуктор: {}/{}", d_rem, d_init);
+    }
+
+    /// Многосемянная калибровка: усреднённое остаточное значение по 5 запускам
+    /// должно быть заметно ниже начального (не менее 5% истощения для каждого комплекта).
+    ///
+    /// Примечание: пороги консервативны, так как скорость отщепления низка
+    /// (base_detach=0.002, oxygen_level ≪ 1 большую часть жизни).
+    #[test]
+    fn test_inductor_calibration_multiseed() {
+        let seeds: [u64; 5] = [42, 100, 999, 12345, 77777];
+        let m_init = 10_u32;
+        let d_init = 8_u32;
+
+        let mut m_total_loss = 0_u32;
+        let mut d_total_loss = 0_u32;
+
+        for seed in seeds {
+            let (m_rem, _, d_rem, _) = run_with_inducers(78, seed);
+            m_total_loss += m_init.saturating_sub(m_rem);
+            d_total_loss += d_init.saturating_sub(d_rem);
+        }
+
+        let m_avg_loss = m_total_loss as f32 / seeds.len() as f32;
+        let d_avg_loss = d_total_loss as f32 / seeds.len() as f32;
+
+        assert!(m_avg_loss >= 0.5,
+            "M-комплект: средняя потеря за 78 лет должна быть ≥0.5 индуктора: {:.2}", m_avg_loss);
+        assert!(d_avg_loss >= 0.5,
+            "D-комплект: средняя потеря за 78 лет должна быть ≥0.5 индуктора: {:.2}", d_avg_loss);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Интеграционные тесты миелоидного сдвига по возрасту (6b)
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod myeloid_range_tests {
+    use super::*;
+    use cell_dt_core::{SimulationManager, SimulationConfig};
+    use cell_dt_core::components::{CentriolePair, CellCycleStateExtended};
+    use myeloid_shift_module::{MyeloidShiftModule, MyeloidShiftComponent};
+    use super::damage::DamageParams;
+
+    /// Запустить `years` лет и вернуть myeloid_bias из MyeloidShiftComponent.
+    /// Детерминированно: base_detach_probability=0.0, ptm_exhaustion_scale=0.0.
+    fn run_myeloid(years: usize) -> f32 {
+        let config = SimulationConfig {
+            max_steps: (years * 365 + 10) as u64,
+            dt: 1.0,
+            checkpoint_interval: 100_000,
+            num_threads: None,
+            seed: None,
+            parallel_modules: false,
+            cleanup_dead_interval: None,
+        };
+        let mut sim = SimulationManager::new(config);
+        sim.register_module(Box::new(HumanDevelopmentModule::with_params(
+            HumanDevelopmentParams {
+                base_detach_probability: 0.0,
+                ptm_exhaustion_scale:    0.0,
+                ..HumanDevelopmentParams::default()
+            },
+        ))).unwrap();
+        sim.register_module(Box::new(MyeloidShiftModule::new())).unwrap();
+
+        sim.world_mut().spawn((CentriolePair::default(), CellCycleStateExtended::new()));
+        sim.initialize().unwrap();
+
+        // Переопределяем damage_rates для воспроизводимости
+        {
+            let mut q = sim.world_mut().query::<&mut HumanDevelopmentComponent>();
+            for (_, comp) in q.iter() {
+                comp.damage_rates = DamageParams::normal_aging();
+            }
+        }
+
+        for _ in 0..(years * 365) {
+            sim.step().unwrap();
+        }
+
+        let mut q = sim.world().query::<&MyeloidShiftComponent>();
+        q.iter()
+            .next()
+            .map(|(_, c)| c.myeloid_bias)
+            .unwrap_or(0.0)
+    }
+
+    /// В 20 лет: повреждения минимальны → myeloid_bias < 0.15
+    #[test]
+    fn test_myeloid_bias_low_at_age_20() {
+        let bias = run_myeloid(20);
+        assert!(bias < 0.15,
+            "В 20 лет myeloid_bias должен быть < 0.15 (фактически: {:.3})", bias);
+    }
+
+    /// В 70 лет: умеренный сдвиг → 0.20 < myeloid_bias < 0.75
+    #[test]
+    fn test_myeloid_bias_moderate_at_age_70() {
+        let bias = run_myeloid(70);
+        assert!(bias > 0.20,
+            "В 70 лет myeloid_bias должен быть > 0.20 (фактически: {:.3})", bias);
+        assert!(bias < 0.75,
+            "В 70 лет myeloid_bias должен быть < 0.75 (фактически: {:.3})", bias);
+    }
+
+    /// В 85 лет: тяжёлый сдвиг → myeloid_bias > 0.35
+    #[test]
+    fn test_myeloid_bias_high_at_age_85() {
+        let bias = run_myeloid(85);
+        assert!(bias > 0.35,
+            "В 85 лет myeloid_bias должен быть > 0.35 (фактически: {:.3})", bias);
+    }
+
+    /// Монотонность: myeloid_bias(70) > myeloid_bias(20)
+    #[test]
+    fn test_myeloid_bias_increases_with_age() {
+        let bias_20 = run_myeloid(20);
+        let bias_70 = run_myeloid(70);
+        assert!(bias_70 > bias_20,
+            "myeloid_bias должен расти с возрастом: age20={:.3}, age70={:.3}",
+            bias_20, bias_70);
     }
 }

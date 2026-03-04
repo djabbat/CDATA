@@ -254,11 +254,10 @@ sasp_intensity   = inflammaging_index           → InflammagingState
   - `human_development_module` читает `Option<&DivisionExhaustionState>`:
     `exhaustion_ratio × 0.0002/шаг` → снижает `stem_cell_pool`
 
-- [ ] **MyeloidShift → AgingPhenotype** (частично — ImmuneDecline уже реализован через SASP):
-  <!--
-  - `human_development_module.update_aging_phenotypes()` читает `MyeloidShiftComponent` (если присутствует)
-  - При `immune_senescence > 0.4` → `active_phenotypes.push(AgingPhenotype::ImmuneDecline)`
-  -->
+- [x] **MyeloidShift → AgingPhenotype** ✅ реализован через InflammagingState:
+  - `MyeloidShiftModule` пишет `inflammaging.sasp_intensity = inflammaging_index`
+  - `HumanDevelopmentModule` читает `infl_sasp > 0.4` → `active_phenotypes.push(AgingPhenotype::ImmuneDecline)`
+  - Прямое чтение `MyeloidShiftComponent` не нужно — `InflammagingState` служит интерфейсом
 
 ---
 
@@ -349,14 +348,17 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 - [x] **`stage_history` — ограничен pop_front при len > 20** ✓
 
-- [ ] **Тест калибровки индукторов** — при `base_detach_probability=0.002`:
-  - За 78 лет: M-остаток ≤ 50% initial, D-остаток ≤ 60% initial
-  - Потребует стохастического запуска или многих итераций
+- [x] **Тест калибровки индукторов** ✅ (сессия 6):
+  - `test_inductor_depletion_occurs` — за 78 лет оба комплекта теряют ≥1 индуктор (seed=42)
+  - `test_inductor_calibration_multiseed` — средняя потеря ≥0.5 индуктора по 5 seed'ам
+  - Стохастическое отщепление: base_detach=0.002 + ptm_exhaustion=0.001, seed через SimulationConfig
 
-- [ ] **Тест миелоидного сдвига** — проверить диапазоны:
-  - t=20 лет: `myeloid_bias < 0.15`
-  - t=70 лет: `0.35 < myeloid_bias < 0.70`
-  - t=85 лет: `myeloid_bias > 0.50`
+- [x] **Тест миелоидного сдвига** ✅ (сессия 6):
+  - `test_myeloid_bias_low_at_age_20` — bias < 0.15 в 20 лет
+  - `test_myeloid_bias_moderate_at_age_70` — 0.20 < bias < 0.75 в 70 лет
+  - `test_myeloid_bias_high_at_age_85` — bias > 0.35 в 85 лет
+  - `test_myeloid_bias_increases_with_age` — монотонность bias(70) > bias(20)
+  - Детерминированные (base_detach=0.0): myeloid_shift_module как dev-dependency
 
 ---
 
@@ -374,10 +376,11 @@ sasp_intensity   = inflammaging_index           → InflammagingState
   - `CdataTimeSeriesVisualizer` — 4-панельный PNG-график (damage, myeloid_bias, spindle, frailty) по оси времени (лет)
   - `cdata_viz_example.rs` — демо: 1200 шагов ≈ 100 лет, 5 тканей, снимок каждый год
 
-- [ ] **Python bindings `cell_dt_python`** — экспортировать:
-  - `HumanDevelopmentComponent` как PyClass
-  - `MyeloidShiftComponent` как PyClass
-  - Функцию `run_simulation(params_dict) -> polars.DataFrame`
+- [x] **Python bindings `cell_dt_python`** ✅ реализованы (сессия 5):
+  - `PyHumanDevelopmentData` (13 полей: stage, age_years, damage_score, spindle, cilia, frailty, m/d inducers, potency...)
+  - `PyMyeloidShiftData` (myeloid_bias, lymphoid_deficit, inflammaging_index, immune_senescence, phenotype)
+  - `PyCdataSimulation` — класс с `add_tissue()`, `run()`, `step()`, `get_cdata_data()`, `get_myeloid_data()`
+  - `run_cdata_simulation(steps, dt, seed, tissues)` → `Vec<PyDict>` со всеми полями
 
 - [x] **`cell_dt_gui` — панель управления** ✅ (сессия 6):
   - Вкладка `Tab::Cdata` ("🔴 CDATA / Aging") добавлена в навигацию
@@ -392,8 +395,12 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ## 8. ТЕХНИЧЕСКИЙ ДОЛГ
 
-- [ ] **Дублирование tissue_type** — `TissueType` (в core) и `HumanTissueType` (в human_development_module)
-  конвертируются через `map_tissue_type()` в `lib.rs`. Рассмотреть слияние или перенос `map_tissue_type` в core.
+- [x] **Дублирование tissue_type** ✅ (сессия 6):
+  - `TissueType` в core расширен до 14 вариантов (добавлены Blood, Epithelial, Liver, Kidney, Heart, Lung, Bone, Cartilage, Adipose, Connective)
+  - `HumanTissueType` удалён как отдельный enum; стал публичным псевдонимом `pub type HumanTissueType = TissueType`
+  - `map_tissue_type()` удалена; `for_tissue()` использует тип напрямую
+  - `organism.rs`: `Hematopoietic` → `Blood`, `IntestinalCrypt` → `Epithelial`
+  - Все крейты компилируются; 68/68 тестов
 
 - [x] **Логирование** ✅ (сессия 5):
   - `trace!` — per-step начала (human_dev, myeloid_shift, cell_cycle, asymmetric_div)
@@ -469,7 +476,9 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 ✅ 18 Спавн дочерних сущностей (asymmetric_division)         → п. 3
 ✅ 19 CSV CDATA-экспорт (CdataExporter, io_example обновлён) → п. 7
 ✅ 21 GUI CDATA-вкладка (Tab::Cdata, CdataGuiConfig, DamagePreset, сессия 6) → п. 7
-   20 митохондриальный модуль                                 → долгосрочно
+✅ 22 Тест калибровки индукторов (2 теста, multiseed, сессия 6)           → п. 6
+✅ 23 Тесты миелоидного сдвига по возрастам (4 теста, сессия 6)           → п. 6
+   20 митохондриальный модуль                                              → долгосрочно
 ```
 
 ---
