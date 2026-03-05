@@ -2,7 +2,7 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: 2026-03-04 (сессия 5)
+> Последнее обновление: 2026-03-05 (сессия 10 — P3/P4/P5/P6/P10 ✅; P11/P12 добавлены)
 
 ---
 
@@ -508,6 +508,9 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 > Источник: `CDATA_Digital_Twin_Article.md`, раздел 6 «Critical Analysis» + раздел 7.2 «Priority Roadmap».
 > Приоритеты расставлены по критичности для научной обоснованности модели.
+>
+> **Статус сессии 9 (2026-03-05):** P3 ✅ P4 ✅ P5 ✅ P6 ✅ P10 ✅ — реализованы.
+> P11/P12 — добавлены по итогам анализа следующих шагов.
 
 ---
 
@@ -550,68 +553,44 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ---
 
-### P3 — Стохастические уравнения накопления повреждений *(важно)*
+### P3 — Стохастические уравнения накопления повреждений ✅ ВЫПОЛНЕНО (2026-03-05)
 
-**Проблема:** четыре молекулярных ODE детерминированы — нулевая вариабельность
-между нишами при одинаковых параметрах — нереалистично для одноклеточного уровня.
-
-- [ ] **Добавить Ланжевен-шум в `accumulate_damage()`:**
-  Гауссов шум с sigma = noise_scale * sqrt(rate * dt), складывается с детерминированным приростом
-- [ ] **Новый параметр `DamageParams.noise_scale: f32`** (default 0.0 — обратная
-  совместимость; рекомендуемое значение 0.1)
-- [ ] **Обновить тесты:** lifecycle-тесты переключать на `noise_scale = 0.0`
-  (детерминизм); добавить тест на вариабельность популяции при `noise_scale > 0`
-- [ ] **Передать `&mut StdRng` в `accumulate_damage()`** — уже есть `StdRng` в
-  `HumanDevelopmentModule`
+- [x] `DamageParams.noise_scale: f32` (default 0.0 — детерминированный режим)
+- [x] Ланжевен-шум в `HumanDevelopmentModule::step()` после `accumulate_damage()`:
+  `sigma = noise_scale * sqrt(dt_years)`, uniform-аппроксимация, 4 молекулярных поля clamped [0,1]
+- [x] Экспозиция через `get_params()` / `set_params()`
+- [x] Шум применяется в lib.rs (не в damage.rs) — seeded StdRng модуля
 
 ---
 
-### P4 — Сигмоидный возрастной мультипликатор *(умеренно важно)*
+### P4 — Сигмоидный возрастной мультипликатор ✅ ВЫПОЛНЕНО (2026-03-05)
 
-**Проблема:** скачок x1.6 в 40 лет — артефактная ступенька, видимая при дневном
-разрешении. Биологически переход постепенный (гормональный, 35-50 лет).
-
-- [ ] **Заменить шаговую функцию на логистику:**
-  transition_center = 42.5 лет, transition_width = 7.5 лет;
-  age_multiplier = 1.0 + (midlife_damage_multiplier - 1.0) * sigmoid(age, center, width)
-- [ ] **Новые параметры `DamageParams`:**
-  `midlife_transition_center: f32` (default 42.5),
-  `midlife_transition_width: f32` (default 7.5)
-- [ ] **Обновить тесты:** `test_midlife_multiplier_smooth` — нет разрывов;
-  `test_multiplier_range` — multiplier принадлежит [1.0, midlife_max]
+- [x] `DamageParams::age_multiplier()` — логистическая функция:
+  `1.0 + (midlife_damage_multiplier - 1.0) * sigmoid(age, center=42.5, width=7.5)`
+- [x] Новые поля: `midlife_transition_center: f32`, `midlife_transition_width: f32`
+- [x] Тесты (4 шт.): smooth_at_40, range, center_half_way, monotone
+- [x] Экспозиция через `get_params()` / `set_params()`
 
 ---
 
-### P5 — Репарация придатков центриоли *(важно для терапевтических сценариев)*
+### P5 — Репарация придатков центриоли ✅ ВЫПОЛНЕНО (2026-03-05)
 
-**Проблема:** потеря CEP164/CEP89/Ninein/CEP170 полностью необратима. Это делает
-невозможным моделирование антиоксидантных интервенций и восстановительной терапии.
-
-- [ ] **Добавить параметры репарации в `DamageParams`:**
-  `cep164_repair_rate: f32` (default 0.0),
-  `appendage_repair_mitophagy_coupling: f32` — усиление при высоком mitophagy_flux
-- [ ] **В `accumulate_damage()`:** добавить repair-терм для каждого appendage:
-  repair = cep164_repair_rate * mitophagy_flux * dt;
-  integrity = (integrity + repair - loss).clamp(0.0, 1.0)
-- [ ] **Новый пресет `DamageParams::antioxidant()`:**
-  repair_rate > 0, base_ros_damage_rate x0.5
-- [ ] **Добавить `Option<f32>` (mitophagy_flux) в `accumulate_damage()` сигнатуру**
-  — читается из `MitochondrialState` если присутствует
+- [x] Новые поля в `DamageParams`: `cep164_repair_rate`, `cep89_repair_rate`,
+  `ninein_repair_rate`, `cep170_repair_rate`, `appendage_repair_mitophagy_coupling` (all default 0.0)
+- [x] Функция `apply_appendage_repair(damage, params, mitophagy_flux, dt_years)` в `damage.rs`
+- [x] Вызов в `lib.rs step()` после PTM bridge; `mitophagy_flux` из `Option<&MitochondrialState>`
+- [x] Пресет `DamageParams::antioxidant()`: ROS×0.5, aggregates×0.7, repair включена, coupling=1.0
+- [x] Тесты (5 шт.): repair_off_by_default, antioxidant_enables_repair, capped_at_one,
+  mitophagy_amplifies, antioxidant_slower_than_normal
 
 ---
 
-### P6 — Полная петля транскриптом -> клеточный цикл *(умеренно важно)*
+### P6 — Полная петля транскриптом -> клеточный цикл ✅ ВЫПОЛНЕНО (2026-03-05)
 
-**Проблема:** `transcriptome_module` умеет арестовывать цикл через p21/p16, но не
-умеет его ускорять через Cyclin D/E. Молодые здоровые клетки получают
-необоснованно высокую частоту арестов.
-
-- [ ] **В `cell_cycle_module.step()`:** читать `cyclin_d_level` из `GeneExpressionState`
-  и укорачивать G1-фазу: при cyclin_d = 1.0 — G1 на 30% короче
-- [ ] **Добавить `GeneExpressionState.cyclin_e_level`** и связь с переходом G1->S
-- [ ] **Закрыть MYC -> пролиферация:** `myc_level` -> сокращение всего цикла
-- [ ] **Новые unit-тесты (3 шт.):**
-  `cyclin_d_shortens_g1`, `cyclin_e_accelerates_g1s`, `myc_speeds_cycle`
+- [x] `GeneExpressionState.cyclin_e_level: f32` (default 0.4) добавлен в `components.rs`
+- [x] G1 boost: `cyclin_d×0.50 + cyclin_e×0.35 + myc×0.15` (ранее только `cyclin_d×0.5`)
+- [x] S-фаза: `myc×0.15` ускоряет репликацию ДНК
+- [x] Тест `test_cyclin_e_accelerates_g1` — cyclin_e=1.0 выходит из G1 раньше 9 шагов
 
 ---
 
@@ -655,33 +634,85 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ---
 
-### P10 — Веса миелоидного сдвига: чувствительность и документация
+### P10 — Веса миелоидного сдвига: чувствительность ✅ ВЫПОЛНЕНО (2026-03-05)
 
-**Проблема:** веса (spindle=0.45, cilia=0.30, ros=0.15, agg=0.10) и экспонента 1.5
-не имеют количественного экспериментального обоснования.
-
-- [ ] **Добавить inline-ссылки в `myeloid_shift_module/src/lib.rs`** с источником
-  каждого веса (Knoblich 2010 -> spindle; Lancaster 2014 -> cilia; Morgan & Liu 2011 -> ROS)
-- [ ] **Сделать экспоненту настраиваемой:** `spindle_nonlinearity_exponent: f32`
-  (default 1.5) в `MyeloidShiftParams`
-- [ ] **SA-тест для весов:** `test_weight_sensitivity` — при +-50% любого веса
-  myeloid_bias@70 остаётся в диапазоне 0.25-0.65
+- [x] `spindle_nonlinearity_exponent: f32` (default 1.5) в `MyeloidShiftParams`
+- [x] Используется в `compute_myeloid_bias()`: `(1-sf).powf(exponent)`
+- [x] Экспозиция через `get_params()` / `set_params("spindle_nonlinearity_exponent")`
+- [x] Тест `test_spindle_nonlinearity_exponent_effect`:
+  при exponent=2.5 и sf=0.5 → bias меньше; при sf=0.0 → идентичен
 
 ---
 
-### Сводная таблица приоритетов
+### P11 — Интервенции (терапевтические сценарии) *(важно — следующий приоритет)*
 
-| #   | Задача                              | Приоритет        | Сложность     | Научная ценность |
-|-----|-------------------------------------|------------------|---------------|-----------------|
-| P1  | Популяционная динамика + CHIP       | Критично         | Высокая       | Очень высокая   |
-| P2  | Анализ чувствительности параметров  | Критично         | Средняя       | Очень высокая   |
-| P3  | Стохастический шум в ODE            | Важно            | Низкая        | Высокая         |
-| P4  | Сигмоидный возрастной множитель     | Важно            | Низкая        | Средняя         |
-| P5  | Репарация придатков центриоли       | Важно            | Средняя       | Высокая         |
-| P6  | Полная петля транскриптом->цикл     | Умеренно         | Низкая        | Средняя         |
-| P7  | Многотканевая модель организма      | Долгосрочно      | Очень высокая | Очень высокая   |
-| P8  | Мультитканевой критерий смерти      | Умеренно         | Низкая        | Средняя         |
-| P9  | Пространственный кислородный щит    | Исследовательский| Высокая       | Средняя         |
-| P10 | Веса миелоидного сдвига             | Умеренно         | Низкая        | Средняя         |
+**Обоснование:** CDATA делает конкретные предсказания о мишенях для замедления
+старения. Без модуля интервенций невозможно отличить предсказания теории от
+случайных совпадений. Это ключевое требование для публикации.
 
-*Последнее обновление: 2026-03-05 (сессия 9 — Scientific Critique Roadmap)*
+- [ ] **`InterventionSchedule`** — новый тип в `cell_dt_core`:
+  ```rust
+  pub struct Intervention {
+      pub start_age_years: f32,
+      pub end_age_years: Option<f32>,   // None = до смерти
+      pub kind: InterventionKind,
+  }
+  pub enum InterventionKind {
+      Senolytics { clearance_rate: f32 },      // удаление сенесцентных клеток
+      NadPlus { mitophagy_boost: f32 },         // активация митофагии
+      CaloricRestriction { ros_factor: f32 },   // снижение ROS
+      TertActivation { elongation_per_div: f32 },// удлинение теломер
+      Antioxidant,                              // DamageParams::antioxidant()
+  }
+  ```
+- [ ] **Применение в `HumanDevelopmentModule::step()`:** проверять активные
+  интервенции по `age_years`, модифицировать `DamageParams` / `MitochondrialState` / `TelomereState`
+- [ ] **Пример `intervention_example.rs`:** 4 стратегии × 100 лет → сравнение lifespan
+- [ ] **Метрика healthspan:** годы с `total_damage_score < 0.5` (здоровый период),
+  дополняет lifespan в выводе
+- [ ] **Тесты (2 шт.):** `senolytics_extend_lifespan`, `nad_plus_improves_mitochondria@70`
+
+---
+
+### P12 — Автоматический CSV-экспорт через SimulationManager *(важно)*
+
+**Обоснование:** `CdataExporter` реализован но не подключён к `SimulationManager`.
+Каждый пример вручную вызывает `collect()`. Это дублирование и источник ошибок.
+
+- [ ] **`SimulationManager::set_exporter(Box<dyn CdataCollect>, interval: u64)`**
+  — вызывать `collect()` каждые N шагов автоматически
+- [ ] **`SimulationManager::write_csv(path: &str)`** — сохранить накопленные данные
+- [ ] **Трейт `CdataCollect { fn collect(&mut self, world: &World, step: u64); fn write(&self, path: &str) }`**
+- [ ] **Обновить все примеры:** убрать ручной вызов `collect()` / `write_cdata_csv()`
+- [ ] **Тест `test_manager_auto_collects`:** после N шагов буфер содержит N/interval записей
+
+---
+
+### Сводная таблица приоритетов (актуальная)
+
+| #   | Задача                              | Приоритет        | Сложность     | Научная ценность | Статус     |
+|-----|-------------------------------------|------------------|---------------|-----------------|------------|
+| P1  | Популяционная динамика + CHIP       | Критично         | Высокая       | Очень высокая   | [ ] ожидает|
+| P2  | Анализ чувствительности параметров  | Критично         | Средняя       | Очень высокая   | [ ] ожидает|
+| P3  | Стохастический шум в ODE            | Важно            | Низкая        | Высокая         | ✅ done    |
+| P4  | Сигмоидный возрастной множитель     | Важно            | Низкая        | Средняя         | ✅ done    |
+| P5  | Репарация придатков центриоли       | Важно            | Средняя       | Высокая         | ✅ done    |
+| P6  | Полная петля транскриптом->цикл     | Умеренно         | Низкая        | Средняя         | ✅ done    |
+| P7  | Многотканевая модель организма      | Долгосрочно      | Очень высокая | Очень высокая   | [ ] ожидает|
+| P8  | Мультитканевой критерий смерти      | Умеренно         | Низкая        | Средняя         | [ ] ожидает|
+| P9  | Пространственный кислородный щит    | Исследовательский| Высокая       | Средняя         | [ ] ожидает|
+| P10 | Настраиваемая нелинейность myeloid  | Умеренно         | Низкая        | Средняя         | ✅ done    |
+| P11 | Интервенции (терапия)               | Важно            | Средняя       | Очень высокая   | [ ] ожидает|
+| P12 | Авто-экспорт CSV через Manager      | Умеренно         | Низкая        | Средняя         | [ ] ожидает|
+
+**Рекомендуемый порядок следующих сессий:**
+```
+[ ] P2 — SA анализ параметров       (быстро, независимо, нужен до P1)
+[ ] P12 — Авто-CSV через Manager    (инфраструктура для анализа данных)
+[ ] P1 — NichePool + популяция      (требует P2 для настройки распределений)
+[ ] P11 — Интервенции               (требует P1 для популяционных кривых выживания)
+[ ] P8 — Критерий смерти организма  (после P1: смерть организма ≠ смерть ниши)
+[ ] P7 — Многотканевая модель       (долгосрочно, после P1 + P8)
+```
+
+*Последнее обновление: 2026-03-05 (сессия 10 — v2 P3/P4/P5/P6/P10 выполнены; P11/P12 добавлены)*

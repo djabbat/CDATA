@@ -213,20 +213,27 @@ RUST_LOG=debug cargo run --bin human_development_example
 
 | Модуль | Статус | Примечание |
 |--------|--------|------------|
-| `human_development_module` | ✅ Полный | Ядро CDATA, 4 трека (A/B/C/D), PTM exhaustion, 32 теста |
-| `myeloid_shift_module` | ✅ Полный | myeloid_bias, InflammagingState, 7 тестов |
-| `cell_cycle_module` | ✅ Полный | Фазы + checkpoints + Hayflick (TelomereState), 14 тестов |
+| `human_development_module` | ✅ Полный | CDATA, 5 треков (A/B/C/D/E), P3/P4/P5 реализованы, 41 тест |
+| `myeloid_shift_module` | ✅ Полный | myeloid_bias, InflammagingState, P10 (spindle_exponent), 8 тестов |
+| `cell_cycle_module` | ✅ Полный | Фазы + checkpoints + Hayflick, P6 (cyclin_e+MYC→G1), 15 тестов |
 | `centriole_module` | ✅ Полный | PTM-накопление в CentriolePair, M-phase boost, 6 тестов |
 | `mitochondrial_module` | ✅ Полный | Трек E: мтДНК, ROS, митофагия, mito_shield, 7 тестов |
-| `transcriptome_module` | 🟡 Частичный | p21/p16 → GeneExpressionState sync; **нет Cyclin D/E → G1 ускорения (P6)** |
-| `asymmetric_division_module` | 🟡 Частичный | Классификация + DivisionExhaustionState + spawn queue; **нет NichePool конкуренции (P1)** |
-| `stem_cell_hierarchy_module` | 🟡 Частичный | Потентность из spindle_fidelity; пластичность реализована частично |
+| `transcriptome_module` | 🟡 Частичный | p21/p16/cyclin_d/e → GeneExpressionState; нет Cyclin E синтеза |
+| `asymmetric_division_module` | 🟡 Частичный | Классификация + spawn queue; **нет NichePool конкуренции [P1]** |
+| `stem_cell_hierarchy_module` | 🟡 Частичный | Потентность из spindle_fidelity; пластичность частично |
 
 ---
 
-## Незавершённые части (v2 — по результатам научной статьи)
+## Незавершённые части (v2 — актуальный статус)
 
 Полный список с приоритетами: см. **RECOMMENDATION.md § 10 ROADMAP v2**.
+
+### Выполнено в сессии 9–10 (2026-03-05) ✅
+- **[P3]** Ланжевен-шум: `DamageParams.noise_scale`, применяется в `lib.rs step()`
+- **[P4]** Сигмоид: `age_multiplier()` с `midlife_transition_center/width`, 4 теста
+- **[P5]** Репарация придатков: `apply_appendage_repair()`, `DamageParams::antioxidant()`, 5 тестов
+- **[P6]** Cyclin E + MYC→G1: `cyclin_e_level` в `GeneExpressionState`, G1 boost формула, 1 тест
+- **[P10]** `spindle_nonlinearity_exponent` в `MyeloidShiftParams`, 1 тест
 
 ### Критично (блокируют научную публикацию)
 
@@ -235,28 +242,22 @@ RUST_LOG=debug cargo run --bin human_development_example
 2. **[P2] Анализ чувствительности** — коэффициент ×4.2 к биохимическим ставкам
    не идентифицирован; нет `sensitivity_analysis.rs`; нет `ParameterSweepConfig`
 
-### Важно (улучшают биологическую корректность)
+### Важно (следующая очередь)
 
-3. **[P3] Стохастический шум в ODE** — `accumulate_damage()` детерминирована;
-   нужен `DamageParams.noise_scale` и `&mut StdRng` в сигнатуре
-4. **[P4] Сигмоидный возрастной множитель** — скачок ×1.6 в 40 лет; нужна
-   логистическая функция с `midlife_transition_center` / `midlife_transition_width`
-5. **[P5] Репарация придатков** — потеря CEP164/CEP89/Ninein/CEP170 необратима;
-   нужен `cep164_repair_rate`, пресет `DamageParams::antioxidant()`
+3. **[P11] Интервенции** — нет модуля терапевтических сценариев: `InterventionSchedule`,
+   пресеты `Senolytics` / `NadPlus` / `CaloricRestriction` / `TertActivation`; нет `healthspan`
+4. **[P12] Авто-CSV через Manager** — `CdataExporter` реализован, но не подключён к
+   `SimulationManager`; каждый пример вручную вызывает `collect()` и `write_cdata_csv()`
 
 ### Умеренно важно
 
-6. **[P6] Cyclin D/E → G1 ускорение** — `transcriptome_module` только арестует,
-   не ускоряет цикл; нужны `cyclin_e_level` + MYC петля
-7. **[P8] Критерий смерти** — `D_total > 0.75` = клеточная сенесценция ≠ смерть
+5. **[P8] Критерий смерти** — `D_total > 0.75` = клеточная сенесценция ≠ смерть
    организма; нужен мультитканевой `OrganismState.is_alive`
-8. **[P10] Веса миелоидного сдвига** — экспонента 1.5 и веса не обоснованы
-   количественно; нужен `spindle_nonlinearity_exponent` в `MyeloidShiftParams`
 
 ### Долгосрочно
 
-9. **[P7] Многотканевая модель** — системный SASP, ось IGF-1/GH, агрегация тканей
-10. **[P9] Пространственный O₂-щит** — `mito_shield` = скаляр; нужен `perinuclear_density`
+6. **[P7] Многотканевая модель** — системный SASP, ось IGF-1/GH, агрегация тканей
+7. **[P9] Пространственный O₂-щит** — `mito_shield` = скаляр; нужен `perinuclear_density`
 
 Полный список: см. **RECOMMENDATION.md § 10**.
 
@@ -270,7 +271,7 @@ Entity (стволовая ниша)
 ├── CentriolarDamageState         ← standalone; 5 молекулярных + 4 аппендажных
 │                                   синхронизируется из HumanDevelopmentComponent каждый step()
 ├── InflammagingState             ← канал обратной связи myeloid→damage; ros_boost, niche_impairment
-├── GeneExpressionState           ← p21/p16/cyclin_d/myc; читается cell_cycle_module
+├── GeneExpressionState           ← p21/p16/cyclin_d/cyclin_e/myc; читается cell_cycle_module
 ├── DivisionExhaustionState       ← exhaustion_count/asymmetric_count; читается human_dev
 ├── CellCycleStateExtended        ← фаза, прогресс, циклины/CDK, чекпоинты
 ├── HumanDevelopmentComponent     ← CDATA: стадия, возраст, damage, inducers, ткань
