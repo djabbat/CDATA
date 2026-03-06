@@ -1,0 +1,30 @@
+simulation:
+  max_steps: 10000
+  dt: 0.1
+  checkpoint_interval: 1000
+  num_threads: 8
+  seed: 42
+  parallel_modules: false
+  output_dir: results
+centriole_module:
+  enabled: true
+  acetylation_rate: 0.02
+  oxidation_rate: 0.01
+  parallel_cells: true
+cell_cycle_module:
+  enabled: true
+  base_cycle_time: 24.0
+  checkpoint_strictness: 0.15
+  enable_apoptosis: true
+  nutrient_availability: 0.9
+  growth_factor_level: 0.85
+  random_variation: 0.25
+transcriptome_module:
+  enabled: true
+  mutation_rate: 0.001
+  noise_level: 0.05
+io_module:
+  enabled: true
+  output_format: csv
+  compression: none
+  buffer_size: 1000

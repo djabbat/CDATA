@@ -1,0 +1,17 @@
+[package]
+name = "cell_dt_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hecs.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+ndarray.workspace = true
+bincode.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+crossbeam = "0.8"  # Добавляем для параллельных каналов

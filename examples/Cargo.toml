@@ -1,0 +1,78 @@
+[package]
+name = "examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+cell_dt_core = { path = "../crates/cell_dt_core" }
+centriole_module = { path = "../crates/cell_dt_modules/centriole_module" }
+cell_cycle_module = { path = "../crates/cell_dt_modules/cell_cycle_module" }
+transcriptome_module = { path = "../crates/cell_dt_modules/transcriptome_module" }
+asymmetric_division_module = { path = "../crates/cell_dt_modules/asymmetric_division_module" }
+stem_cell_hierarchy_module = { path = "../crates/cell_dt_modules/stem_cell_hierarchy_module" }
+human_development_module = { path = "../crates/cell_dt_modules/human_development_module" }
+myeloid_shift_module = { path = "../crates/cell_dt_modules/myeloid_shift_module" }
+mitochondrial_module = { path = "../crates/cell_dt_modules/mitochondrial_module" }
+cell_dt_viz = { path = "../crates/cell_dt_viz" }
+cell_dt_io = { path = "../crates/cell_dt_io" }
+cell_dt_config = { path = "../crates/cell_dt_config" }
+env_logger.workspace = true
+rand.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "simple_simulation"
+path = "src/bin/simple_simulation.rs"
+
+[[bin]]
+name = "performance_test"
+path = "src/bin/performance_test.rs"
+
+[[bin]]
+name = "viz_example"
+path = "src/bin/viz_example.rs"
+
+[[bin]]
+name = "cell_cycle_example"
+path = "src/bin/cell_cycle_example.rs"
+
+[[bin]]
+name = "cell_cycle_advanced"
+path = "src/bin/cell_cycle_advanced.rs"
+
+[[bin]]
+name = "cell_cycle_ultra_soft"
+path = "src/bin/cell_cycle_ultra_soft.rs"
+
+[[bin]]
+name = "transcriptome_example"
+path = "src/bin/transcriptome_example.rs"
+
+[[bin]]
+name = "io_example"
+path = "src/bin/io_example.rs"
+
+[[bin]]
+name = "config_example"
+path = "src/bin/config_example.rs"
+
+[[bin]]
+name = "stem_cell_example"
+path = "src/bin/stem_cell_example.rs"
+
+[[bin]]
+name = "human_development_example"
+path = "src/bin/human_development_example.rs"
+
+[[bin]]
+name = "myeloid_shift_example"
+path = "src/bin/myeloid_shift_example.rs"
+
+[[bin]]
+name = "cdata_viz_example"
+path = "src/bin/cdata_viz_example.rs"
+
+[[bin]]
+name = "mitochondrial_example"
+path = "src/bin/mitochondrial_example.rs"

@@ -1,0 +1,18 @@
+{
+  "simulation": {
+    "max_steps": 200,
+    "dt": 0.05,
+    "num_threads": 4,
+    "seed": 42
+  },
+  "modules": {
+    "centriole": {
+      "acetylation_rate": 0.02,
+      "parallel_cells": true
+    },
+    "cell_cycle": {
+      "base_cycle_time": 15.0,
+      "checkpoint_strictness": 0.1
+    }
+  }
+}

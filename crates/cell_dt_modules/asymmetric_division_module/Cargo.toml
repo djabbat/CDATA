@@ -1,0 +1,15 @@
+[package]
+name = "asymmetric_division_module"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cell_dt_core = { path = "../../cell_dt_core" }
+centriole_module = { path = "../centriole_module" }
+cell_cycle_module = { path = "../cell_cycle_module" }
+transcriptome_module = { path = "../transcriptome_module" }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+rand.workspace = true
+rayon.workspace = true

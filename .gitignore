@@ -1,0 +1,12 @@
+# Python virtual environment
+venv/
+
+# Rust build outputs
+target/
+
+# Cargo lock files
+Cargo.lock
+
+# OS junk
+*.swp
+*.DS_Store

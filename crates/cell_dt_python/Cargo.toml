@@ -1,0 +1,21 @@
+[package]
+name = "cell_dt_python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cell_dt"
+crate-type = ["cdylib"]
+
+[dependencies]
+cell_dt_core = { path = "../cell_dt_core" }
+centriole_module = { path = "../cell_dt_modules/centriole_module" }
+cell_cycle_module = { path = "../cell_dt_modules/cell_cycle_module" }
+transcriptome_module = { path = "../cell_dt_modules/transcriptome_module" }
+human_development_module = { path = "../cell_dt_modules/human_development_module" }
+myeloid_shift_module = { path = "../cell_dt_modules/myeloid_shift_module" }
+cell_dt_io = { path = "../cell_dt_io" }
+pyo3 = { version = "0.20", features = ["extension-module"] }
+serde_json = "1.0"
+numpy = "0.20"
+rand = "0.8"

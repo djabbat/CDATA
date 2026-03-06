@@ -1,0 +1,34 @@
+[simulation]
+max_steps = 500
+dt = 0.05
+checkpoint_interval = 1000
+num_threads = 2
+seed = 42
+parallel_modules = false
+output_dir = "results"
+
+[centriole_module]
+enabled = true
+acetylation_rate = 0.05000000074505806
+oxidation_rate = 0.009999999776482582
+parallel_cells = true
+
+[cell_cycle_module]
+enabled = true
+base_cycle_time = 24.0
+checkpoint_strictness = 0.05000000074505806
+enable_apoptosis = true
+nutrient_availability = 0.8999999761581421
+growth_factor_level = 0.8500000238418579
+random_variation = 0.25
+
+[transcriptome_module]
+enabled = false
+mutation_rate = 0.0010000000474974513
+noise_level = 0.05000000074505806
+
+[io_module]
+enabled = true
+output_format = "csv"
+compression = "none"
+buffer_size = 1000

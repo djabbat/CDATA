@@ -1,0 +1,21 @@
+[simulation]
+max_steps = 1000
+dt = 0.1
+num_threads = 8
+seed = 42
+parallel_modules = true
+output_dir = "results/benchmark"
+
+[centriole_module]
+enabled = true
+parallel_cells = true
+
+[cell_cycle_module]
+enabled = true
+base_cycle_time = 24.0
+
+[transcriptome_module]
+enabled = false
+
+[io_module]
+enabled = false

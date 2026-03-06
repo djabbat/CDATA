@@ -1,0 +1,32 @@
+[simulation]
+max_steps = 100
+dt = 0.1
+num_threads = 2
+seed = 42
+output_dir = "results/dev"
+
+[centriole_module]
+enabled = true
+acetylation_rate = 0.02
+oxidation_rate = 0.01
+parallel_cells = true
+
+[cell_cycle_module]
+enabled = true
+base_cycle_time = 10.0
+checkpoint_strictness = 0.1
+enable_apoptosis = false
+nutrient_availability = 1.0
+growth_factor_level = 1.0
+random_variation = 0.3
+
+[transcriptome_module]
+enabled = true
+mutation_rate = 0.01
+noise_level = 0.1
+
+[io_module]
+enabled = true
+output_format = "csv"
+compression = "none"
+buffer_size = 100
