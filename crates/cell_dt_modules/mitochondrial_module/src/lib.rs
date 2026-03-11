@@ -208,6 +208,14 @@ impl SimulationModule for MitochondrialModule {
                     + mito.membrane_potential * 0.35
                     + (1.0 - mito.ros_production) * 0.25)
                     .clamp(0.0, 1.0);
+
+            // --- 7. Перинуклеарная плотность (P9 — пространственный O₂-щит) ---
+            // fusion_index → компактный перинуклеарный кластер
+            // ros_production ↑ → фрагментация сети → кластер рассыпается
+            mito.perinuclear_density =
+                (mito.fusion_index * 0.70
+                    + (1.0 - mito.ros_production) * 0.30)
+                    .clamp(0.0, 1.0);
         }
 
         Ok(())

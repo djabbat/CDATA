@@ -863,8 +863,11 @@ impl SimulationModule for HumanDevelopmentModule {
             let mito_ros_boost = mito_opt.map_or(0.0, |m| m.ros_boost(0.20));
             // Митохондриальный щит: снижает эффективный кислородный уровень у центросомы
             // mito_shield_contribution < 1.0 → O₂ проникает активнее → больше отщеплений
+            // P9: perinuclear_density добавляет пространственный барьер диффузии O₂ (max +15%)
             // Применяется к base_detach_probability через масштабирование (лаг 1 шаг)
-            let mito_shield = mito_opt.map_or(1.0, |m| m.mito_shield_contribution);
+            let mito_shield = mito_opt.map_or(1.0, |m| {
+                (m.mito_shield_contribution + m.perinuclear_density * 0.15).clamp(0.0, 1.0)
+            });
             // Вклад эпигенетических часов в ROS (лаг 1 шаг, аналогично inflammaging)
             let epi_ros_from_prev = epigenetic_opt.as_ref().map_or(0.0, |e| e.epi_ros_contribution);
             // Истощение делений (asymmetric_division_module → stem_cell_pool)

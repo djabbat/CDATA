@@ -440,6 +440,13 @@ pub struct CdataGuiConfig {
     pub aggregate_weight: f32,
     /// Пресет скоростей повреждений
     pub damage_preset: DamagePreset,
+    // --- Track F: темп деления ---
+    /// Базовый минимальный темп деления (age_factor clamp нижняя граница)
+    pub division_rate_floor: f32,
+    /// Сила тормоза ROS на темп деления (коэффициент при ros_level)
+    pub ros_brake_strength: f32,
+    /// Сила тормоза mTOR на темп деления
+    pub mtor_brake_strength: f32,
 }
 
 /// Пресет DamageParams
@@ -473,6 +480,9 @@ impl Default for CdataGuiConfig {
             ros_weight: 0.15,
             aggregate_weight: 0.10,
             damage_preset: DamagePreset::Normal,
+            division_rate_floor: 0.15,
+            ros_brake_strength: 0.40,
+            mtor_brake_strength: 0.35,
         }
     }
 }
@@ -1385,14 +1395,68 @@ impl ConfigApp {
 
         ui.add_space(4.0);
 
+        // --- Track F: Division rate decline ---
+        ui.collapsing("📉 Трек F — Темп деления (StemCellDivisionRateState)", |ui| {
+            ui.label("division_rate = cilia_drive × spindle_drive × age_factor × ros_brake × mtor_brake");
+            ui.label("Применяется как: regeneration_tempo *= division_rate.sqrt()");
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label("division_rate_floor:")
+                  .on_hover_text("Нижняя граница age_factor (минимальный темп деления у пожилых). По умолч.: 0.15");
+                if ui.add(
+                    Slider::new(&mut self.state.cdata.division_rate_floor, 0.05..=0.50)
+                        .step_by(0.01)
+                ).changed() {
+                    self.push_history();
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("ros_brake_strength:")
+                  .on_hover_text("Сила тормоза ROS: ros_brake = 1 - ros_level × strength. По умолч.: 0.40");
+                if ui.add(
+                    Slider::new(&mut self.state.cdata.ros_brake_strength, 0.0..=1.0)
+                        .step_by(0.05)
+                ).changed() {
+                    self.push_history();
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("mtor_brake_strength:")
+                  .on_hover_text("Сила тормоза mTOR: mtor_brake = 1 - (mtor-0.3).max(0) × strength. По умолч.: 0.35");
+                if ui.add(
+                    Slider::new(&mut self.state.cdata.mtor_brake_strength, 0.0..=1.0)
+                        .step_by(0.05)
+                ).changed() {
+                    self.push_history();
+                }
+            });
+
+            ui.add_space(4.0);
+            ui.label("Пять молекулярных тормозов темпа деления:");
+            ui.label("  cilia_drive  = 0.25 + ciliary_function × 0.75");
+            ui.label("  spindle_drive = 0.30 + spindle_fidelity × 0.70");
+            ui.label("  age_factor   = (1 - (age-20)/100) clamp [floor, 1.0]");
+            ui.label("  ros_brake    = (1 - ros × strength) clamp [0.40, 1.0]");
+            ui.label("  mtor_brake   = (1 - (mtor-0.3)×strength) clamp [0.60, 1.0]");
+        });
+
+        ui.add_space(4.0);
+
         // --- Info block ---
         ui.collapsing("ℹ️ Справка по CDATA", |ui| {
             ui.label("Теория накопления центриолярных повреждений (Jaba Tkemaladze).");
             ui.add_space(2.0);
-            ui.label("Пути старения:");
+            ui.label("Шесть треков старения:");
             ui.label("  A — Цилии: CEP164↓ → Shh/Wnt↓ → нет самообновления ниши");
             ui.label("  B — Веретено: spindle_fidelity↓ → симм. деление → истощение пула");
-            ui.label("  C — Миелоид: spindle↓ + cilia↓ + ROS↑ → PU.1 > Ikaros → воспаление");
+            ui.label("  C — Теломеры: укорачивание → Хейфлик G1-арест");
+            ui.label("  D — Эпигенетика: methylation_age += dt × (1 + damage × 0.5)");
+            ui.label("  E — Митохондрии: мтДНК мутации → ROS↑ → mito_shield↓");
+            ui.label("  F — Темп деления: 5 молекулярных тормозов → division_rate↓");
+            ui.label("  + Миелоидный: spindle↓ + cilia↓ + ROS↑ → PU.1 > Ikaros → воспаление");
             ui.add_space(2.0);
             ui.label("Порог сенесценции: total_damage > 0.75 → смерть ниши ≈ 78 лет.");
         });

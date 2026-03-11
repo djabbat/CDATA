@@ -99,14 +99,16 @@ M=0 И D=0           → Apoptosis (запрограммированный)
 - Параметр `mother_bias` ([0..1]) управляет соотношением вероятностей
 - Возраст через `age_bias_coefficient` лишь корректирует `mother_bias`, не является причиной
 
-### Четыре трека старения
+### Шесть треков старения
 | Трек | Механизм | Маркер |
 |------|----------|--------|
 | A (цилии) | CEP164↓ → Shh/Wnt↓ → нет самообновления | `ciliary_function → regeneration_tempo` |
 | B (веретено) | spindle_fidelity↓ → симм. деление → истощение пула | `pool_exhaustion_probability()` |
 | C (теломеры) | укорачивание = per_div × div_rate × spindle_f × ros_f → Хейфлик G1-арест | `TelomereState.is_critically_short → G1SRestriction` |
 | D (эпигенетика) | methylation_age += dt × (1 + damage × 0.5) | `EpigeneticClockState.clock_acceleration` |
-| (мелоидный) | spindle↓ + cilia↓ + ROS↑ → PU.1 > Ikaros → сдвиг к миелоиду | `myeloid_bias → inflammaging_index` |
+| E (митохондрии) | мтДНК мутации → ROS↑ → mito_shield↓ → O₂ проникает к центриолям | `MitochondrialState.mito_shield → o2_at_centriole` |
+| F (темп деления) | division_rate = cilia_drive × spindle_drive × age_factor × ros_brake × mtor_brake | `StemCellDivisionRateState.division_rate → regeneration_tempo` |
+| (миелоидный) | spindle↓ + cilia↓ + ROS↑ → PU.1 > Ikaros → сдвиг к миелоиду | `myeloid_bias → inflammaging_index` |
 
 ### Калибровка (DamageParams::default)
 - `senescence_threshold = 0.75` → смерть ≈ 78 лет
@@ -205,7 +207,7 @@ cargo run --bin io_example
 # Производительность
 cargo run --bin performance_test
 
-# Все тесты (57 тестов)
+# Все тесты (198 тестов)
 cargo test
 
 # Документация
@@ -221,7 +223,7 @@ RUST_LOG=debug cargo run --bin human_development_example
 
 | Модуль | Статус | Примечание |
 |--------|--------|------------|
-| `human_development_module` | ✅ Полный | CDATA, 5 треков (A/B/C/D/E), P3/P4/P5 реализованы, 41 тест |
+| `human_development_module` | ✅ Полный | 6 треков (A/B/C/D/E/F), P13–P20 реализованы, DDRState, StemCellDivisionRateState, ~116 тестов |
 | `myeloid_shift_module` | ✅ Полный | myeloid_bias, InflammagingState, P10 (spindle_exponent), 8 тестов |
 | `cell_cycle_module` | ✅ Полный | Фазы + checkpoints + Hayflick, P6 (cyclin_e+MYC→G1), 15 тестов |
 | `centriole_module` | ✅ Полный | PTM-накопление в CentriolePair, M-phase boost, 6 тестов |
@@ -326,7 +328,14 @@ Entity (стволовая ниша)
 ├── StemCellHierarchyState        ← потентность (синхр. со spindle_fidelity)
 ├── AsymmetricDivisionComponent   ← тип деления, niche_id, stemness_potential
 ├── TelomereState                 ← mean_length [0..1], shortening_per_division, is_critically_short
-└── EpigeneticClockState          ← methylation_age, clock_acceleration
+├── EpigeneticClockState          ← methylation_age, clock_acceleration
+├── MitochondrialState            ← mtdna_mutations, fusion_index, ros_production, mito_shield (Трек E)
+├── NKSurveillanceState           ← nkg2d_ligand_expression, nk_activity, kill_probability (P15)
+├── ProteostasisState             ← proteasome_activity, hsp_capacity, aggresome_index (P16)
+├── CircadianState                ← amplitude, proteasome_night_boost, circadian_sasp (P18)
+├── AutophagyState                ← mtor_activity, autophagy_flux, aggregate_clearance (P19)
+├── DDRState                      ← gamma_h2ax_level, atm_activity, p53_stabilization (P20)
+└── StemCellDivisionRateState     ← division_rate, cilia_drive, spindle_drive, age_factor, ros_brake, mtor_brake (Трек F)
 ```
 
 ---

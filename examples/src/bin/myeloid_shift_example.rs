@@ -14,7 +14,9 @@
 //! ```
 //! Year  Stage          Damage  Spindle   Cilia  M-ind  ΔM  D-ind  ΔD  Potency         mBias  Phenotype
 //! ```
-//! Столбцы ΔM/ΔD показывают изменение числа индукторов за 10-летний интервал.
+//! Столбцы ΔM/ΔD — изменение числа индукторов за 10-летний интервал.
+//! DivRate — темп деления стволовых клеток [0..1] (Трек F).
+//! Decline — степень снижения темпа = 1 - DivRate.
 
 use cell_dt_core::{SimulationManager, SimulationConfig};
 use cell_dt_core::components::{CentriolePair, CellCycleStateExtended};
@@ -25,7 +27,7 @@ use human_development_module::{
     HumanDevelopmentComponent,
 };
 use myeloid_shift_module::{MyeloidShiftModule, MyeloidShiftComponent};
-use cell_dt_core::components::{InflammagingState, TelomereState};
+use cell_dt_core::components::{InflammagingState, TelomereState, StemCellDivisionRateState};
 use std::io::Write;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -84,10 +86,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Создаём ниши
     initialize_niches(&mut sim, 5)?;
 
-    println!("{:<6} {:<14} {:>7} {:>7} {:>7} {:>6} {:>4} {:>6} {:>4} {:<14} {:>6} {:>6} {:<14}",
+    println!("{:<6} {:<14} {:>7} {:>7} {:>7} {:>6} {:>4} {:>6} {:>4} {:<14} {:>6} {:>6} {:>7} {:>7} {:<14}",
         "Year", "Stage", "Damage", "Spindle", "Cilia",
-        "M-ind", "ΔM", "D-ind", "ΔD", "Potency", "mBias", "Tel", "Phenotype");
-    println!("{}", "-".repeat(118));
+        "M-ind", "ΔM", "D-ind", "ΔD", "Potency", "mBias", "Tel", "DivRate", "Decline", "Phenotype");
+    println!("{}", "-".repeat(135));
 
     sim.initialize()?;
 
@@ -151,6 +153,10 @@ fn print_year_status(
         let mut q = world.query::<&TelomereState>();
         q.iter().map(|(e, t)| (e, t.clone())).collect()
     };
+    let divrate_data: Vec<_> = {
+        let mut q = world.query::<&StemCellDivisionRateState>();
+        q.iter().map(|(e, r)| (e, r.clone())).collect()
+    };
 
     let mut dev_query = world.query::<&HumanDevelopmentComponent>();
     if let Some((entity, dev)) = dev_query.iter().find(|(_, d)| d.is_alive) {
@@ -185,14 +191,19 @@ fn print_year_status(
             .map(|(_, t)| t.mean_length)
             .unwrap_or(1.0);
 
+        let (div_rate, decline_idx) = divrate_data.iter()
+            .find(|(e, _)| *e == entity)
+            .map(|(_, r)| (r.division_rate, r.decline_index))
+            .unwrap_or((1.0, 0.0));
+
         let dm_str = if delta_m == 0 { "=".to_string() } else { format!("{:+}", delta_m) };
         let dd_str = if delta_d == 0 { "=".to_string() } else { format!("{:+}", delta_d) };
 
         println!(
-            "{:<6} {:<14} {:>7.3} {:>7.3} {:>7.3} {:>6} {:>4} {:>6} {:>4} {:<14} {:>6.3} {:>6.3} {:<14}",
+            "{:<6} {:<14} {:>7.3} {:>7.3} {:>7.3} {:>6} {:>4} {:>6} {:>4} {:<14} {:>6.3} {:>6.3} {:>7.3} {:>7.3} {:<14}",
             year, stage_str, damage, spindle, cilia,
             m_ind, dm_str, d_ind, dd_str,
-            potency_str, myeloid_bias, tel_len, phenotype_str,
+            potency_str, myeloid_bias, tel_len, div_rate, decline_idx, phenotype_str,
         );
 
         (m_ind, d_ind)

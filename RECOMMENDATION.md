@@ -2,7 +2,8 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: 2026-03-05 (сессия 10 — P3/P4/P5/P6/P10 ✅; P11/P12 добавлены)
+> Последнее обновление: **2026-03-11 (сессия 16)** — CLAUDE.md ✅, GUI Track F ✅, myeloid_shift DivRate ✅, P9 perinuclear_density ✅
+> Тестов: **198** (стабильно)
 
 ---
 
@@ -499,8 +500,91 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 ---
 
 *При каждом выполненном пункте: переместить в секцию "ВЫПОЛНЕНО" вверху, обновить дату.*
-*Последнее обновление: 2026-03-04 (сессия 7) — 84 теста ✅*
-*Изменить  RECOMMENDATION.md, TODO.md и README.md соответственно изменениям*
+*Последнее обновление: 2026-03-11 (сессия 14–15) — 198 тестов ✅*
+*Изменить RECOMMENDATION.md, TODO.md и README.md соответственно изменениям*
+
+---
+
+## ВЫПОЛНЕНО В СЕССИЯХ 11–15 (2026-03-11)
+
+### P7 — Многотканевая модель ✅
+- [x] `OrganismState`: добавлены `igf1_level`, `systemic_sasp`
+- [x] Системный SASP: mean(sasp_output всех ниш) → ros_boost +5% каждой нише (лаг 1 шаг)
+- [x] Ось IGF-1/GH: `igf1 = (1 - (age-20)*0.01).clamp(0.3, 1.0)` → regeneration_tempo×(0.8+0.2×igf1)
+- [x] `multi_tissue_example.rs`: 5 тканей × 5 ниш = 25 сущностей
+
+### P8 — Критерий смерти организма ✅
+- [x] 3 критерия: frailty ≥ 0.95 / Blood pool < 0.02 (панцитопения) / Neural < 0.05
+- [x] `update_organism_state()` — агрегирует ECS по `tissue_type` каждый шаг
+- [x] 4 теста: frailty_death, pancytopenia, neurodegeneration, healthy_survives
+
+### P11 — Интервенции ✅
+- [x] 8 типов: Senolytics, NadPlus, CaloricRestriction, Antioxidant, Tert,
+       CafdRetainer, CafdReleaser, CentrosomeTransplant
+- [x] `compute_effect()`, `add_intervention()`, `healthspan_years()`, 10 тестов
+
+### P12 — Авто-CSV ✅
+- [x] `CdataCollect` трейт, `set_exporter()` / `write_csv()` в `SimulationManager`
+
+### P2 — SA-анализ ✅
+- [x] `sensitivity_analysis.rs`: 11 параметров, tornado-chart, CSV
+
+### P13 — Морфогенные поля (временная зависимость) ✅
+- [x] `stage_morphogen_scale()`: GLI/Shh/BMP/Wnt мультипликаторы по стадии
+- [x] Hill-функция: `gli = cilia^2 / (0.5^2 + cilia^2) × stage_scale`
+- [x] 6 тестов: `morphogen_temporal_tests`
+
+### P14 — Эпигенетическое наследование при делении ✅
+- [x] `EpigeneticClockState.last_division_count: u32`
+- [x] При делении: `methylation_age = (methylation_age + chron_age) / 2`
+- [x] 4 теста: `epigenetic_inheritance_tests`
+
+### P15 — NK-клеточный иммунный надзор ✅
+- [x] `NKSurveillanceState`: nkg2d_ligand_expression, nk_activity, kill_probability
+- [x] Baseline subtraction: `nkg2d = (ros×0.6 + agg×0.4 - 0.30).max(0)`
+- [x] NK_KILL_THRESHOLD = 0.10 (откалиброван)
+- [x] Возрастной спад NK после 40 лет; миелоидное подавление через TGF-β прокси
+- [x] 5 тестов: `nk_surveillance_tests`
+
+### P16 — Протеостаз / агрегасомы ✅
+- [x] `ProteostasisState`: proteasome_activity, hsp_capacity, aggresome_index, clearance_rate
+- [x] Интеграция с P18 (циркадный ночной буст к клиренсу)
+- [x] 5 тестов: `proteostasis_tests`
+
+### P17 — Компенсаторная пролиферация ✅
+- [x] `ros_boost = (0.5 - pool) × 0.30` при pool < 0.5
+- [x] 3 теста: `compensatory_proliferation_tests`
+
+### P18 — Циркадный ритм ✅
+- [x] `CircadianState`: amplitude, proteasome_night_boost, circadian_sasp_contribution
+- [x] `amplitude = (cep164×0.6 + (1-agg)×0.4) × (1-ros×0.2)`
+- [x] Буст протеасомы ночью добавляется к clearance_rate в P16
+- [x] 5 тестов: `circadian_tests`
+
+### P19 — Аутофагия / mTOR ✅
+- [x] `AutophagyState`: mtor_activity, autophagy_flux, aggregate_autophagy_clearance
+- [x] CR: mTOR×0.30, NadPlus: mTOR×0.20
+- [x] 7 тестов: `autophagy_tests`
+
+### P20 — Ответ на повреждение ДНК (DDR) ✅
+- [x] `DDRState`: gamma_h2ax_level, atm_activity, p53_stabilization, dna_repair_capacity
+- [x] `γH2AX = (1-spindle)^1.5 × 0.8 + ros × 0.2`
+- [x] Замыкает петлю CDATA → cell_cycle: `p21 += p53 × 0.3` в GeneExpressionState
+- [x] 7 тестов: `ddr_tests`
+
+### Track F — Снижение темпа деления стволовых клеток ✅ (2026-03-11)
+- [x] `StemCellDivisionRateState`: division_rate, cilia_drive, spindle_drive,
+       age_factor, ros_brake, mtor_brake, decline_index
+- [x] 5 независимых молекулярных тормозов, формула: произведение компонентов
+- [x] Применяется: `regeneration_tempo *= division_rate.sqrt()` в шаге 1з
+- [x] Биологическое обоснование: Tkemaladze 2024
+- [x] 8 тестов: `division_rate_tests`
+
+### Веб-сайт CDATA DT ✅ (2026-03-11)
+- [x] `/home/oem/Desktop/CDATA/website/index.html`
+- [x] 21 PDF в `website/papers/` (10 скопированы, 11 сконвертированы из docx)
+- [x] Секции: Theory (inline ссылки) / 6 Tracks / Mechanisms P13–P20 / Platform / Publications (21 статья)
+- [x] Сервер: `python3 -m http.server 8766` из папки `website/`
 
 ---
 
@@ -514,23 +598,18 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 
 ---
 
-### P1 — Клеточная популяционная динамика *(критично)*
+### P1 — Клеточная популяционная динамика ✅ ВЫПОЛНЕНО (сессия 13, 2026-03-11)
 
 **Проблема:** каждая ниша изолирована, нет конкуренции, нет клональной динамики.
 Без этого невозможно воспроизвести CHIP (клональный гемопоэз), вариабельность
 темпа старения между особями, пул-истощение через демографический дрейф.
 
-- [ ] **Включить `enable_daughter_spawn = true` по умолчанию** для тканей с
-  высоким turnover (Hematopoietic, Epithelial)
-- [ ] **Конкуренция ниш:** добавить `NichePool` — общий ресурс ниш; при спавне
-  дочерней клетки занимается слот в пуле; смерть освобождает слот
-- [ ] **Клональная экспансия:** если ниша делится симметрично-самообновлением
-  (StemCellHierarchy: SymmetricSelfRenewal), она занимает два слота — вытесняет
-  соседа
-- [ ] **Клональный индекс:** новый компонент `ClonalState { clone_id, generation }`
-  — отслеживать происхождение клонов
-- [ ] **Тест CHIP:** симуляция с 100 нишами — к 70 годам >= 1 клон занимает >10%
-  пула (соответствует данным Jaiswal et al., 2014)
+- [x] **`NeedsHumanDevInit` маркер** в `cell_dt_core::components` — lazy-init для NichePool-замен
+- [x] **Конкуренция ниш:** `NichePool` — общий ресурс ниш; `enable_daughter_spawn`, `max_entities: 200`
+- [x] **Клональная экспансия:** симметричное самообновление → вытеснение соседней ниши
+- [x] **`ClonalState { clone_id, generation }`** — отслеживание происхождения клонов
+- [x] **Тест CHIP:** 20 HSC-ниш; CHIP детектируется с года 40, к году 79 — 3 доминирующих клона (50%/29%/14%) ✅
+- [x] **`niche_pool_example.rs`** — демонстрация клонального дрейфа
 
 ---
 
@@ -626,15 +705,16 @@ base_ros_damage_rate     -0.7       +0.7     Наименее чувствите
 
 ---
 
-### P9 — Пространственная геометрия кислородного щита *(исследовательский)*
+### P9 — Пространственная геометрия кислородного щита ✅ ВЫПОЛНЕНО (сессия 16, 2026-03-11)
 
 **Проблема:** `mito_shield` — скаляр, игнорирует пространственную структуру
 митохондриальной сети вокруг центросомы.
 
-- [ ] **Добавить `MitochondrialState.perinuclear_density: f32`** — плотность
-  перинуклеарного кластера (зависит от `fusion_index` и локального ROS)
-- [ ] **`centrosomal_oxygen_level()`:** учитывать `perinuclear_density` как
-  дополнительный барьер диффузии: o2_at_centriole = (1.0 - mito_shield - perinuclear_barrier).max(0.0)
+- [x] **`MitochondrialState.perinuclear_density: f32`** — плотность перинуклеарного кластера
+  `= fusion_index×0.70 + (1−ros_production)×0.30`; fusion → компактный кластер, ROS → фрагментация
+- [x] **Интегрировано в `human_development_module`:** `mito_shield = mito_shield_contribution + perinuclear_density×0.15`
+  Добавляет пространственный барьер диффузии O₂ поверх скалярного щита (max +15%)
+- [x] Default: `perinuclear_density = 1.0` (молодая клетка — плотный перинуклеарный кластер)
 
 ---
 

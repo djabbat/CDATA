@@ -1872,11 +1872,17 @@ pub struct MitochondrialState {
     /// Вклад митохондрий в кислородный щит центросомы [0..1].
     /// 1.0 = полный щит; 0.0 = щита нет.
     pub mito_shield_contribution: f32,
+    /// Плотность перинуклеарного митохондриального кластера [0..1] (P9).
+    /// Зависит от `fusion_index` и локального ROS; добавляет пространственный
+    /// барьер диффузии O₂ к центросоме поверх скалярного `mito_shield`.
+    /// `perinuclear_barrier = perinuclear_density × 0.15`
+    pub perinuclear_density: f32,
 }
 
 impl Default for MitochondrialState {
     fn default() -> Self {
         Self {
+            perinuclear_density: 1.0,
             mtdna_mutations: 0.0,
             fusion_index: 1.0,
             ros_production: 0.0,
