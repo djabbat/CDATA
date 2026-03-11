@@ -1495,6 +1495,135 @@ impl DDRState {
     }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Трек F — Снижение темпа деления стволовых клеток со временем
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Состояние темпа деления стволовых клеток (Track F).
+///
+/// С возрастом стволовые клетки делятся всё реже — даже если ниша ещё не истощена
+/// (Track B). Это самостоятельный механизм старения: замедление обновления тканей
+/// при сохранном пуле. Ткань деградирует медленнее, чем при Track B, но неизбежно.
+///
+/// ## Молекулярные причины снижения темпа (Tkemaladze, 2024)
+/// 1. **CEP164↓ → цилии↓ → Wnt/Shh↓ → Cyclin D1↓** — морфогенная стимуляция G1→S
+///    снижается при потере первичных ресничек.
+/// 2. **Spindle damage → p21↑ → G1-арест удлиняется** — клетки проводят больше времени
+///    в G1, сокращая частоту делений в единицу времени.
+/// 3. **ROS-индуцированное старение** — высокий ROS стабилизирует p16/p21, создавая
+///    квазисенесцентные состояния без полного арреста.
+/// 4. **mTOR-зависимое замедление** — с возрастом mTOR-активность растёт, подавляя
+///    автофагию и перераспределяя ресурсы от пролиферации к репарации.
+/// 5. **Накопление PTM на центриолях** — затруднение разборки PCM (перицентросомного
+///    материала) перед делением → удлинение G2/M.
+///
+/// ## Связь с другими треками
+/// - Усиливает Track B: медленное + уменьшающееся пул = двойной удар.
+/// - Взаимодействует с Track A: потеря морфогенного сигнала снижает пролиферативный стимул.
+/// - Связан с P20 (DDR): ATM → p53 → p21 → удлинение G1 → снижение division_rate.
+/// - Взаимодействует с P19 (mTOR): высокий mTOR подавляет пролиферацию стволовых клеток.
+///
+/// ## Биологические ссылки
+/// - Tkemaladze (2024): The rate of stem cell division decreases with age
+/// - Janzen et al. (2006): Stem cell ageing is regulated by p21 — Aging Cell
+/// - Beerman & Rossi (2015): Epigenetic regulation of HSC aging — Exp Cell Res
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StemCellDivisionRateState {
+    /// Нормализованный темп деления [0..1].
+    /// 1.0 = молодая клетка; снижается со временем по совокупности факторов.
+    /// Применяется как мультипликатор к `TissueState::regeneration_tempo`.
+    pub division_rate: f32,
+
+    /// Вклад цилиарного/морфогенного сигнала в темп деления [0..1].
+    /// `cilia_drive = 0.25 + ciliary_function × 0.75`
+    /// При ciliary_function=0: минимальный сигнал 0.25 (паракринные пути).
+    pub cilia_drive: f32,
+
+    /// Вклад качества веретена (через длительность G1) [0..1].
+    /// `spindle_drive = 0.3 + spindle_fidelity × 0.7`
+    /// При spindle=0: фракция клеток в длительном G1-аресте максимальна.
+    pub spindle_drive: f32,
+
+    /// Возрастной коэффициент торможения [0..1].
+    /// `age_factor = max(0.15, 1.0 - (age - 20).max(0) / 100)`
+    /// Линейное снижение с 20 лет; достигает 0.15 примерно к 105 годам.
+    pub age_factor: f32,
+
+    /// Вклад ROS-индуцированного квазисенесцентного торможения [0..1].
+    /// `ros_brake = 1.0 - ros_level × 0.4`  (ROS подавляет пролиферацию)
+    pub ros_brake: f32,
+
+    /// Вклад mTOR-зависимого торможения [0..1].
+    /// `mtor_brake = 1.0 - (mtor_activity - 0.3) × 0.35`
+    /// Базовый mTOR=0.3 → нет торможения; высокий mTOR → снижение темпа.
+    pub mtor_brake: f32,
+
+    /// Интегральный индекс снижения темпа деления по сравнению с молодой нормой [0..1].
+    /// `decline_index = 1.0 - division_rate`
+    /// 0 = нет снижения; 1 = деления полностью прекратились.
+    pub decline_index: f32,
+}
+
+impl Default for StemCellDivisionRateState {
+    fn default() -> Self {
+        Self {
+            division_rate:  1.0,
+            cilia_drive:    1.0,
+            spindle_drive:  1.0,
+            age_factor:     1.0,
+            ros_brake:      1.0,
+            mtor_brake:     1.0,
+            decline_index:  0.0,
+        }
+    }
+}
+
+impl StemCellDivisionRateState {
+    /// Обновить темп деления на основе текущего состояния повреждений.
+    ///
+    /// # Аргументы
+    /// * `ciliary_function` — `CentriolarDamageState::ciliary_function` [0..1]
+    /// * `spindle_fidelity` — `CentriolarDamageState::spindle_fidelity` [0..1]
+    /// * `ros_level`        — `CentriolarDamageState::ros_level` [0..1]
+    /// * `age_years`        — хронологический возраст (лет)
+    /// * `mtor_activity`    — из `AutophagyState::mtor_activity` [0..1]; 0.3 если недоступен
+    pub fn update(
+        &mut self,
+        ciliary_function: f32,
+        spindle_fidelity: f32,
+        ros_level:        f32,
+        age_years:        f32,
+        mtor_activity:    f32,
+    ) {
+        // 1. Цилиарный/морфогенный вклад: Wnt/Shh стимулируют G1→S через Cyclin D1
+        self.cilia_drive = (0.25 + ciliary_function * 0.75).clamp(0.0, 1.0);
+
+        // 2. Качество веретена: повреждение → более длительный G1, арест (p21↑)
+        self.spindle_drive = (0.30 + spindle_fidelity * 0.70).clamp(0.0, 1.0);
+
+        // 3. Возрастной фактор: линейное снижение с 20 лет
+        self.age_factor = (1.0 - (age_years - 20.0).max(0.0) / 100.0)
+            .clamp(0.15, 1.0);
+
+        // 4. ROS-тормоз: высокий ROS → p21/p16 стабилизация → квазисенесценция
+        self.ros_brake = (1.0 - ros_level * 0.40).clamp(0.40, 1.0);
+
+        // 5. mTOR-тормоз: повышенный mTOR перераспределяет ресурсы от пролиферации
+        // Базовый mTOR=0.3 → нет торможения; mTOR=0.8 → -17.5% к темпу
+        self.mtor_brake = (1.0 - (mtor_activity - 0.3).max(0.0) * 0.35).clamp(0.6, 1.0);
+
+        // Интегральный темп: произведение всех компонентов
+        self.division_rate = (self.cilia_drive
+            * self.spindle_drive
+            * self.age_factor
+            * self.ros_brake
+            * self.mtor_brake)
+            .clamp(0.01, 1.0);
+
+        self.decline_index = 1.0 - self.division_rate;
+    }
+}
+
 impl CellCycleStateExtended {
     /// Получить активность конкретного комплекса
     pub fn get_complex_activity(&self, cyclin_type: CyclinType, cdk_type: CdkType) -> f32 {

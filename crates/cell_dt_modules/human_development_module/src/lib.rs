@@ -39,6 +39,7 @@ use cell_dt_core::{
         AutophagyState,
         DDRState,
         GeneExpressionState,
+        StemCellDivisionRateState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -798,6 +799,7 @@ impl SimulationModule for HumanDevelopmentModule {
                 world.insert_one(entity, CircadianState::default())?;
                 world.insert_one(entity, AutophagyState::default())?;
                 world.insert_one(entity, DDRState::default())?;
+                world.insert_one(entity, StemCellDivisionRateState::default())?;
                 // Убираем маркер: сущность теперь полноценная ниша
                 let _ = world.remove::<(NeedsHumanDevInit,)>(entity);
                 trace!("HumanDev lazy-init: NichePool replacement initialized as {:?} HSC (clone {})", tissue, clone_id);
@@ -1433,6 +1435,37 @@ impl SimulationModule for HumanDevelopmentModule {
             }
         }
 
+        // Шаг 1з: Track F — Снижение темпа деления стволовых клеток.
+        // StemCellDivisionRateState обновляется после DDR (p21 уже записан) и
+        // применяется как мультипликатор к regeneration_tempo:
+        //   regeneration_tempo_final = regeneration_tempo × division_rate
+        // mTOR-активность берётся из AutophagyState (если есть), иначе 0.3 (молодая норма).
+        {
+            for (_, (dev, divrate, autoph_opt)) in world.query_mut::<(
+                &mut HumanDevelopmentComponent,
+                &mut StemCellDivisionRateState,
+                Option<&AutophagyState>,
+            )>() {
+                if !dev.is_alive { continue; }
+                let dam = &dev.centriolar_damage;
+                let mtor = autoph_opt.map_or(0.3, |a| a.mtor_activity);
+                divrate.update(
+                    dam.ciliary_function,
+                    dam.spindle_fidelity,
+                    dam.ros_level,
+                    dev.age_years() as f32,
+                    mtor,
+                );
+                // Применяем: замедление деления снижает темп регенерации ткани.
+                // Используем sqrt чтобы смягчить эффект (division_rate — долгосрочный фактор,
+                // regeneration_tempo уже учитывает краткосрочные изменения).
+                dev.tissue_state.regeneration_tempo *= divrate.division_rate.sqrt();
+                // Гарантируем минимум (ткань не умирает мгновенно от замедления)
+                dev.tissue_state.regeneration_tempo =
+                    dev.tissue_state.regeneration_tempo.max(0.01);
+            }
+        }
+
         // Шаг 1в: NK-клеточный иммунный надзор (P15).
         // Двухфазовый паттерн: сначала обновляем NKSurveillanceState,
         // затем элиминируем клетки с высокой вероятностью — отдельным проходом.
@@ -1721,6 +1754,7 @@ impl SimulationModule for HumanDevelopmentModule {
             world.insert_one(entity, CircadianState::default())?;
             world.insert_one(entity, AutophagyState::default())?;
             world.insert_one(entity, DDRState::default())?;
+            world.insert_one(entity, StemCellDivisionRateState::default())?;
             world.insert_one(entity, comp)?;
         }
 
@@ -3316,5 +3350,114 @@ mod ddr_tests {
         assert!(d.p21_contribution() > 0.05,
             "Moderate spindle damage should produce p21 contribution > 0.05, got {:.4}",
             d.p21_contribution());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Track F — Снижение темпа деления стволовых клеток
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod division_rate_tests {
+    use cell_dt_core::components::StemCellDivisionRateState;
+
+    /// Молодая здоровая клетка: темп деления должен быть близок к 1.0.
+    #[test]
+    fn test_young_healthy_max_rate() {
+        let mut s = StemCellDivisionRateState::default();
+        s.update(1.0, 1.0, 0.0, 20.0, 0.3);
+        assert!(s.division_rate > 0.90,
+            "Young healthy cell should have division_rate > 0.90, got {:.4}", s.division_rate);
+        assert!(s.decline_index < 0.10,
+            "Young healthy decline_index should be < 0.10, got {:.4}", s.decline_index);
+    }
+
+    /// Пожилая клетка делится медленнее молодой при одинаковых повреждениях.
+    #[test]
+    fn test_old_cell_slower_than_young() {
+        let mut young = StemCellDivisionRateState::default();
+        let mut old   = StemCellDivisionRateState::default();
+        young.update(0.8, 0.8, 0.1, 25.0, 0.35);
+        old.update(  0.8, 0.8, 0.1, 75.0, 0.55);
+        assert!(old.division_rate < young.division_rate,
+            "Old cell should divide slower: {:.4} >= {:.4}",
+            old.division_rate, young.division_rate);
+    }
+
+    /// Потеря ресничек снижает цилиарный драйв (морфогенный сигнал).
+    #[test]
+    fn test_cilia_loss_reduces_drive() {
+        let mut intact = StemCellDivisionRateState::default();
+        let mut no_cil = StemCellDivisionRateState::default();
+        intact.update(1.0, 0.8, 0.1, 40.0, 0.4);
+        no_cil.update(0.0, 0.8, 0.1, 40.0, 0.4);
+        assert!(no_cil.cilia_drive < intact.cilia_drive,
+            "No cilia should reduce cilia_drive: {:.4} >= {:.4}",
+            no_cil.cilia_drive, intact.cilia_drive);
+        assert!(no_cil.division_rate < intact.division_rate,
+            "No cilia should reduce division_rate: {:.4} >= {:.4}",
+            no_cil.division_rate, intact.division_rate);
+    }
+
+    /// Повреждение веретена → снижение spindle_drive → замедление деления.
+    #[test]
+    fn test_spindle_damage_reduces_rate() {
+        let mut good = StemCellDivisionRateState::default();
+        let mut bad  = StemCellDivisionRateState::default();
+        good.update(0.9, 1.0, 0.05, 35.0, 0.35);
+        bad.update( 0.9, 0.2, 0.05, 35.0, 0.35);
+        assert!(bad.spindle_drive < good.spindle_drive,
+            "Low spindle should reduce spindle_drive");
+        assert!(bad.division_rate < good.division_rate,
+            "Low spindle should reduce division_rate: {:.4} >= {:.4}",
+            bad.division_rate, good.division_rate);
+    }
+
+    /// Высокий ROS тормозит деление.
+    #[test]
+    fn test_high_ros_brakes_division() {
+        let mut low_ros  = StemCellDivisionRateState::default();
+        let mut high_ros = StemCellDivisionRateState::default();
+        low_ros.update( 0.8, 0.8, 0.05, 40.0, 0.4);
+        high_ros.update(0.8, 0.8, 0.90, 40.0, 0.4);
+        assert!(high_ros.ros_brake < low_ros.ros_brake,
+            "High ROS should lower ros_brake");
+        assert!(high_ros.division_rate < low_ros.division_rate,
+            "High ROS should lower division_rate: {:.4} >= {:.4}",
+            high_ros.division_rate, low_ros.division_rate);
+    }
+
+    /// Высокий mTOR тормозит деление (перераспределение ресурсов).
+    #[test]
+    fn test_high_mtor_brakes_division() {
+        let mut low_mtor  = StemCellDivisionRateState::default();
+        let mut high_mtor = StemCellDivisionRateState::default();
+        low_mtor.update( 0.8, 0.8, 0.1, 40.0, 0.30); // молодой mTOR
+        high_mtor.update(0.8, 0.8, 0.1, 40.0, 0.80); // старческий mTOR
+        assert!(high_mtor.mtor_brake < low_mtor.mtor_brake,
+            "High mTOR should lower mtor_brake");
+        assert!(high_mtor.division_rate < low_mtor.division_rate,
+            "High mTOR should lower division_rate: {:.4} >= {:.4}",
+            high_mtor.division_rate, low_mtor.division_rate);
+    }
+
+    /// decline_index = 1 - division_rate (инвариант).
+    #[test]
+    fn test_decline_index_invariant() {
+        let mut s = StemCellDivisionRateState::default();
+        s.update(0.5, 0.6, 0.3, 60.0, 0.55);
+        let expected = 1.0 - s.division_rate;
+        assert!((s.decline_index - expected).abs() < 1e-6,
+            "decline_index should equal 1 - division_rate: {:.6} != {:.6}",
+            s.decline_index, expected);
+    }
+
+    /// Темп никогда не падает ниже 0.01 (минимальная пролиферативная активность).
+    #[test]
+    fn test_rate_never_zero() {
+        let mut s = StemCellDivisionRateState::default();
+        // Экстремальные условия: старость + нет ресничек + нет веретена + макс. ROS + макс. mTOR
+        s.update(0.0, 0.0, 1.0, 120.0, 1.0);
+        assert!(s.division_rate >= 0.01,
+            "division_rate should never go below 0.01, got {:.6}", s.division_rate);
     }
 }
